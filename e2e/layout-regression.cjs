@@ -59,8 +59,36 @@ async function main() {
 				const second = render();
 				const after = bounds();
 				const count = document.querySelectorAll("[data-ot-role='note']").length;
-				const inside = sources.every(
-					(e) => e.querySelectorAll("[data-ot-role='note']").length === 1,
+				const inside = sources.every((e) => {
+					if (e.hasAttribute("data-test-external")) {
+						return (
+							!e.querySelector("[data-ot-role='note']") &&
+							e.nextElementSibling?.getAttribute("data-ot-role") === "note"
+						);
+					}
+					return e.querySelectorAll("[data-ot-role='note']").length === 1;
+				});
+				const clipped = document.querySelector("#clipped-source");
+				const externalVisible =
+					clipped.nextElementSibling.getBoundingClientRect().top >=
+					clipped.getBoundingClientRect().bottom;
+				const row = document.querySelector("#flex-source");
+				const rowVisible =
+					row.nextElementSibling.getBoundingClientRect().top >=
+					row.getBoundingClientRect().bottom;
+				const fallbackNotes = [
+					...document.querySelectorAll(".review-cases [data-ot-role='note']"),
+				];
+				const reviewCases = document.querySelector(".review-cases");
+				reviewCases.style.flexDirection = "row";
+				window.dispatchEvent(new Event("resize"));
+				const unsafeHidden = fallbackNotes.every(
+					(note) => getComputedStyle(note).display === "none",
+				);
+				reviewCases.style.flexDirection = "column";
+				window.dispatchEvent(new Event("resize"));
+				const restored = fallbackNotes.every(
+					(note) => getComputedStyle(note).display !== "none",
 				);
 				const sourceText = runtime.__TEST__.getSegmentContent(sources[1]).text;
 				sources[1].firstChild.textContent =
@@ -80,6 +108,13 @@ async function main() {
 					document.documentElement.scrollWidth > window.innerWidth;
 				document.querySelector("#action").click();
 				const action = document.querySelector("#action").textContent;
+				runtime.cleanup();
+				reviewCases.style.flexDirection = "row";
+				window.dispatchEvent(new Event("resize"));
+				const cleanupStable = fallbackNotes.every(
+					(note) => getComputedStyle(note).display !== "none",
+				);
+				reviewCases.style.flexDirection = "column";
 				return {
 					before,
 					after,
@@ -87,6 +122,11 @@ async function main() {
 					second,
 					count,
 					inside,
+					externalVisible,
+					rowVisible,
+					unsafeHidden,
+					restored,
+					cleanupStable,
 					sourceText,
 					dynamicCount,
 					dynamicText,
@@ -95,11 +135,16 @@ async function main() {
 					action,
 				};
 			});
-			assert.equal(result.first.rendered, 4);
-			assert.equal(result.second.rendered, 4);
+			assert.equal(result.first.rendered, 6);
+			assert.equal(result.second.rendered, 6);
 			assert.deepEqual(result.after, result.before);
-			assert.equal(result.count, 4);
+			assert.equal(result.count, 6);
 			assert.equal(result.inside, true);
+			assert.equal(result.externalVisible, true);
+			assert.equal(result.rowVisible, true);
+			assert.equal(result.unsafeHidden, true);
+			assert.equal(result.restored, true);
+			assert.equal(result.cleanupStable, true);
 			assert.equal(result.dynamicCount, 1);
 			assert.equal(result.dynamicText, "更新後的薪資：$25–$80/hr。");
 			assert.equal(

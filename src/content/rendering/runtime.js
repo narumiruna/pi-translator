@@ -79,20 +79,99 @@ export function createContentRenderer(options = {}) {
 		return tagName === "a" || tagName === "span" ? "p" : tagName;
 	}
 
+	function canAppendNoteInsideTarget(element) {
+		const style = window.getComputedStyle(element);
+		return (
+			!["flex", "inline-flex", "grid", "inline-grid"].includes(style.display) &&
+			[style.overflowX, style.overflowY].every(
+				(overflow) => !overflow || overflow === "visible",
+			) &&
+			(!style.maxHeight || style.maxHeight === "none") &&
+			!/(?:paint|size|strict|content)/.test(style.contain || "")
+		);
+	}
+
 	function shouldAppendNoteInsideTarget(element) {
 		const tagName = element?.tagName ? element.tagName.toLowerCase() : "";
+		return (
+			(tagName === "td" || tagName === "th" || isLayoutItem(element)) &&
+			canAppendNoteInsideTarget(element)
+		);
+	}
 
-		return tagName === "td" || tagName === "th" || isLayoutItem(element);
+	function canInsertSiblingNote(element) {
+		const parent = element?.parentElement;
+		if (!parent) return true;
+		const style = window.getComputedStyle(parent);
+		if (style.display === "grid" || style.display === "inline-grid")
+			return false;
+		return (
+			!["flex", "inline-flex"].includes(style.display) ||
+			(["column", "column-reverse"].includes(style.flexDirection) &&
+				(!style.flexWrap || style.flexWrap === "nowrap"))
+		);
 	}
 
 	function insertNoteForTarget(insertionTarget, note) {
 		if (shouldAppendNoteInsideTarget(insertionTarget)) {
-			insertionTarget.appendChild(note);
+			note.style?.removeProperty("display");
+			note.style?.removeProperty("order");
+			if (
+				note.parentElement !== insertionTarget ||
+				insertionTarget.lastChild !== note
+			) {
+				insertionTarget.appendChild(note);
+			}
 			return;
 		}
-
-		insertionTarget.insertAdjacentElement("afterend", note);
+		if (!canInsertSiblingNote(insertionTarget)) {
+			note.style?.setProperty("display", "none", "important");
+			return;
+		}
+		note.style?.removeProperty("display");
+		const parentStyle =
+			insertionTarget.parentElement &&
+			window.getComputedStyle(insertionTarget.parentElement);
+		const isFlexParent = ["flex", "inline-flex"].includes(parentStyle?.display);
+		if (isFlexParent) {
+			note.style?.setProperty(
+				"order",
+				window.getComputedStyle(insertionTarget).order || "0",
+			);
+		} else {
+			note.style?.removeProperty("order");
+		}
+		const reversed =
+			isFlexParent && parentStyle.flexDirection === "column-reverse";
+		const adjacent = reversed
+			? insertionTarget.previousElementSibling
+			: insertionTarget.nextElementSibling;
+		if (adjacent !== note) {
+			insertionTarget.insertAdjacentElement(
+				reversed ? "beforebegin" : "afterend",
+				note,
+			);
+		}
 	}
+
+	function reconcileNotePlacements() {
+		withObserverPaused(() => {
+			const notes = new Map(
+				Array.from(
+					document.querySelectorAll(`[${ROOT_ATTR}="note"]`),
+					(note) => [note.getAttribute(NOTE_ATTR), note],
+				),
+			);
+			for (const source of document.querySelectorAll(`[${SOURCE_ATTR}]`)) {
+				const note = notes.get(source.getAttribute(SOURCE_ATTR));
+				if (!note) continue;
+				const target = getNoteInsertionTarget(source);
+				if (target) insertNoteForTarget(target, note);
+				else note.style.setProperty("display", "none", "important");
+			}
+		});
+	}
+	window.addEventListener?.("resize", reconcileNotePlacements);
 
 	function buildNote(sourceElement, id, insertionTarget = sourceElement) {
 		const tagName = SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)
@@ -260,7 +339,10 @@ export function createContentRenderer(options = {}) {
 							SubtitleApi.shouldAllowAncestorTransforms(ACTIVE_SITE_PROFILE)),
 				})
 			) {
-				return current;
+				return shouldAppendNoteInsideTarget(current) ||
+					canInsertSiblingNote(current)
+					? current
+					: null;
 			}
 
 			current = current.parentElement;
@@ -415,9 +497,7 @@ export function createContentRenderer(options = {}) {
 				sourceText,
 			});
 
-			if (!existingNote) {
-				insertNoteForTarget(insertionTarget, note);
-			}
+			insertNoteForTarget(insertionTarget, note);
 
 			SubtitleApi.applySubtitleDisplayMode(
 				ACTIVE_SITE_PROFILE,
@@ -455,9 +535,7 @@ export function createContentRenderer(options = {}) {
 			withObserverPaused(() => {
 				setNotePending(note, payload.targetLanguage);
 
-				if (!note.isConnected) {
-					insertNoteForTarget(insertionTarget, note);
-				}
+				insertNoteForTarget(insertionTarget, note);
 			});
 			setSourceQueued(element, true);
 			rendered += 1;
@@ -847,6 +925,7 @@ export function createContentRenderer(options = {}) {
 	}
 
 	function cleanupRendering() {
+		window.removeEventListener?.("resize", reconcileNotePlacements);
 		selectionPanelRenderer?.cleanup();
 		for (const element of document.querySelectorAll(
 			`[${ROOT_ATTR}="toast-layer"], [${ROOT_ATTR}="debug-panel"]`,

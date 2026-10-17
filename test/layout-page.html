@@ -9,6 +9,10 @@
   h2 { flex: 0 0 220px; }
   .body { display: flex; flex-direction: column; flex: 1; min-width: 1px; }
   .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+  .review-cases { display: flex; flex-direction: column; width: min(350px, 100%); }
+  #flex-source { display: flex; }
+  #flex-source > span { flex: 0 0 320px; }
+  #clipped-source { height: 24px; overflow: hidden; }
   @media (max-width: 700px) {
     section { flex-direction: column; }
     h2 { flex-basis: auto; }
@@ -24,4 +28,8 @@
   <p data-test-source>Automatic grid placement must remain unchanged after translation.</p>
   <p data-test-source>Another grid item with readable original text.</p>
 </div>
+<article class="review-cases">
+  <p id="flex-source" data-test-source data-test-external><span>This is readable original text in a row layout.</span></p>
+  <p id="clipped-source" data-test-source data-test-external>This is a paragraph that must remain readable with its translation.</p>
+</article>
 </html>

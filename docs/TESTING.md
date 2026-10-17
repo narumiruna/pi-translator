@@ -120,7 +120,10 @@
 
 ### Flex/grid layout regression
 
-1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button.
+1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button. CI runs this regression after installing Chromium.
+   - Sources with internal flex/grid layout or clipping must use visible sibling notes under safe flow or column-flex parents.
+   - When a responsive parent changes to an unsafe row/grid layout, fallback notes must hide without changing the source. They must return when a safe placement is available.
+   - Sources without a safe internal or sibling placement are skipped rather than changing host-page CSS.
 2. Open `https://anthologyresearch.ai/roles/ml-systems-engineer-kernels-inference-1a4903/i` with the built extension. Translate at desktop width, then resize to 390 px. Confirm the body remains readable and no horizontal overflow is added.
 3. Confirm the translated salary lines retain `$50–$150/hr`, `$35–$120/hr`, and `$25–$80/hr` without internal placeholders.
 4. Repeat translation, test available translation controls, and open the FAQ items. Confirm notes do not accumulate and page links and controls still work.

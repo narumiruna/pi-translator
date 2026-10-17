@@ -39,6 +39,25 @@ function maskProtectedFragments(text, existingTokens) {
 	const existingPlaceholders = new Set(
 		tokens.map((token) => token.placeholder),
 	);
+	// Protect complete code spans before masking literal placeholder examples.
+	maskedText = maskedText.replace(INLINE_CODE_REGEX, (value) => {
+		if (
+			(value.match(PLACEHOLDER_REGEX) || []).some((placeholder) =>
+				existingPlaceholders.has(placeholder),
+			)
+		) {
+			// Keep pre-extracted placeholders visible to validation and DOM restoration.
+			return value;
+		}
+		const placeholder = allocatePlaceholder();
+		const token = { placeholder, value };
+		if (PLACEHOLDER_PREFIX_REGEX.test(value)) {
+			token.literal = true;
+		}
+		tokens.push(token);
+		existingPlaceholders.add(placeholder);
+		return placeholder;
+	});
 	maskedText = maskedText.replace(
 		/__OT_(?:TOKEN|MATH)_\d+__|__OT_(?:TOKEN|MATH)_\w*/gi,
 		(value) => {
@@ -68,7 +87,6 @@ function maskProtectedFragments(text, existingTokens) {
 			.join("");
 	}
 
-	replaceWithToken(INLINE_CODE_REGEX);
 	replaceWithToken(DISPLAY_LATEX_REGEX);
 	replaceWithToken(BLOCK_BRACKET_MATH_REGEX);
 	replaceWithToken(INLINE_PAREN_MATH_REGEX);
@@ -91,7 +109,7 @@ function assertKnownPlaceholders(text, tokens) {
 	let remainder = String(text || "");
 
 	for (const token of tokens || []) {
-		remainder = remainder.split(token.placeholder).join("");
+		remainder = remainder.split(token.placeholder).join(" ");
 	}
 
 	if (PLACEHOLDER_PREFIX_REGEX.test(remainder)) {

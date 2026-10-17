@@ -416,6 +416,46 @@ test("flex notes stay within their source across responsive directions", () => {
 	}
 });
 
+test("constrained flex items use sibling notes only in safe column layouts", () => {
+	for (const computedStyle of [
+		{ display: "flex" },
+		{ display: "grid" },
+		{ overflowX: "hidden", overflowY: "hidden" },
+		{ maxHeight: "24px" },
+		{ contain: "paint" },
+	]) {
+		const parent = createFakeElement({
+			computedStyle: { display: "flex", flexDirection: "column" },
+		});
+		const source = createFakeElement({
+			parentElement: parent,
+			computedStyle,
+			tagName: "P",
+		});
+		const insertions = [];
+		const properties = new Map();
+		const note = {
+			style: {
+				setProperty: (name, value) => properties.set(name, value),
+				removeProperty: (name) => properties.delete(name),
+			},
+		};
+		source.appendChild = () =>
+			assert.fail("Constrained source must not contain the note");
+		source.insertAdjacentElement = (position) => insertions.push(position);
+		assert.equal(_shouldAppendNoteInsideTarget(source), false);
+		_insertNoteForTarget(source, note);
+		assert.deepEqual(insertions, ["afterend"]);
+		parent.computedStyle.flexDirection = "column-reverse";
+		_insertNoteForTarget(source, note);
+		assert.deepEqual(insertions, ["afterend", "beforebegin"]);
+		parent.computedStyle.flexDirection = "row";
+		_insertNoteForTarget(source, note);
+		assert.equal(properties.get("display"), "none");
+		assert.equal(insertions.length, 2);
+	}
+});
+
 test("nested grid notes are excluded from source text", () => {
 	const note = createSerializableElement({
 		attributes: { "data-ot-role": "note" },

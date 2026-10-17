@@ -502,6 +502,30 @@ test("salary ranges and nested code survive request validation and both merge pa
 	assert.equal(completed[0].protectedFragments.length, 1);
 });
 
+test("literal code placeholders and split prefixes survive both merge paths", () => {
+	for (const text of [
+		"`__OT_MATH_42__` means a placeholder; `hello` is code.",
+		"__OT_`x`TOKEN_",
+	]) {
+		const plan = createRecursiveChunkPlan([{ id: "code", text }], 48);
+		const translations = plan.expandedItems.map((item) => ({
+			id: item.id,
+			translation: item.text.replace("means", "表示").replace("is", "是"),
+		}));
+		validateProtectedFragments(plan.expandedItems, translations);
+		const merged = mergeRecursiveTranslations(plan, translations);
+		const state = createProgressiveMergeState(plan);
+		const completed = translations.flatMap((translation) =>
+			consumeProgressiveTranslations(plan, state, [translation]),
+		);
+		assert.deepEqual(completed, merged);
+		assert.equal(
+			merged[0].translation,
+			text.replace("means", "表示").replace("is", "是"),
+		);
+	}
+});
+
 test("corrupted tokens fail both response paths without emitting or caching translations", async () => {
 	for (const useProviderRuntime of [false, true]) {
 		for (const corrupted of [

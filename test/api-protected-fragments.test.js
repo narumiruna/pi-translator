@@ -88,6 +88,91 @@ test("literal placeholder examples do not collide with generated tokens", () => 
 	}
 });
 
+test("inline code containing literal placeholders stays atomic while prose is translated", () => {
+	for (const literal of [
+		"__OT_MATH_42__",
+		"__OT_TOKEN_1__",
+		"__OT_TOKEN_X__",
+		"__OT_TOKEN_1_",
+	]) {
+		const text = `\`${literal}\` means a placeholder; \`hello\` is code.`;
+		const masked = maskProtectedFragments(text);
+		assert.deepEqual(
+			masked.tokens.map(({ value }) => value),
+			[`\`${literal}\``, "`hello`"],
+		);
+		assert.equal(masked.maskedText.includes("hello"), false);
+		assert.ok(
+			masked.tokens.every(({ placeholder }) => placeholder !== literal),
+		);
+		assert.deepEqual(
+			maskProtectedFragments(masked.maskedText, masked.tokens),
+			masked,
+		);
+		const translation = masked.maskedText
+			.replace("means a placeholder", "表示佔位符")
+			.replace("is code", "是程式碼");
+		validateProtectedFragments(
+			[
+				{
+					id: "code",
+					text: masked.maskedText,
+					protectedFragments: masked.tokens,
+				},
+			],
+			[{ id: "code", translation }],
+		);
+		assert.equal(
+			unmaskProtectedFragments(translation, masked.tokens),
+			`\`${literal}\` 表示佔位符; \`hello\` 是程式碼.`,
+		);
+	}
+});
+
+test("inline code does not take ownership of pre-extracted math placeholders", () => {
+	const existing = [
+		{ placeholder: "__OT_MATH_1__", value: "$x$", preservePlaceholder: true },
+	];
+	const text = "`__OT_MATH_1__` means a placeholder; `hello` is code.";
+	const masked = maskProtectedFragments(text, existing);
+	assert.deepEqual(masked.tokens, [
+		...existing,
+		{ placeholder: "__OT_TOKEN_1__", value: "`hello`" },
+	]);
+	assert.equal(
+		masked.maskedText,
+		"`__OT_MATH_1__` means a placeholder; __OT_TOKEN_1__ is code.",
+	);
+	assert.equal(
+		unmaskProtectedFragments(masked.maskedText, masked.tokens),
+		text,
+	);
+	assert.deepEqual(
+		maskProtectedFragments(masked.maskedText, masked.tokens),
+		masked,
+	);
+});
+
+test("validation does not join text across a known placeholder", () => {
+	const text = "__OT_`x`TOKEN_";
+	const masked = maskProtectedFragments(text);
+	assert.equal(masked.maskedText, "__OT___OT_TOKEN_1__TOKEN_");
+	validateProtectedFragments(
+		[
+			{
+				id: "boundary",
+				text: masked.maskedText,
+				protectedFragments: masked.tokens,
+			},
+		],
+		[{ id: "boundary", translation: masked.maskedText }],
+	);
+	assert.equal(
+		unmaskProtectedFragments(masked.maskedText, masked.tokens),
+		text,
+	);
+});
+
 test("restoration resolves nested tokens independent of token order", () => {
 	const tokens = [
 		{ placeholder: "__OT_TOKEN_1__", value: "$50–$" },
@@ -131,6 +216,7 @@ test("validation rejects extra duplicated and malformed placeholders", () => {
 		"__OT_TOKEN_1__ __OT_TOKEN_1__",
 		"__OT_TOKEN_1__ __OT_TOKEN_X__",
 		"__OT_TOKEN_1__ __OT_MATH_99__",
+		"__OT_TOKEN_1____OT_TOKEN_X__",
 	]) {
 		assert.throws(
 			() => validateProtectedFragments(items, [{ id: "a", translation }]),
