@@ -5,8 +5,10 @@ const FILE_PATH_REGEX =
 const URL_REGEX = /\bhttps?:\/\/[^\s<>"']+/g;
 const INLINE_CODE_REGEX = /`[^`\n]+`/g;
 const DISPLAY_LATEX_REGEX = /\$\$[\s\S]+?\$\$/g;
-// Dollar math cannot start/end with whitespace or close before a price digit.
-const INLINE_DOLLAR_MATH_REGEX = /(?<!\\)\$(?!\s)[^$\n]*[^\s$\n]\$(?!\d)/g;
+// Allow padded math, but keep numeric price openings from absorbing prose.
+// A closing dollar before a price digit belongs to the next price instead.
+const INLINE_DOLLAR_MATH_REGEX =
+	/(?<!\\)\$(?:(?!\d)[^$\n]+|(?!\s)[^$\n]*[^\s$\n])\$(?!\d)/g;
 const CURRENCY_REGEX =
 	/(?<![\\\w])\$\d+(?:,\d{3})*(?:\.\d+)?(?:\s*[-–—]\s*\$?\d+(?:,\d{3})*(?:\.\d+)?)?(?:\s*\/\s*(?:hr|hour|day|week|mo|month|yr|year)s?)?(?![\w$])/g;
 // Prefer complete math expressions over a numeric price prefix, e.g. $2 + 3$.

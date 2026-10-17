@@ -22,7 +22,9 @@ test("protected fragment masking preserves code paths urls and tech terms", () =
 
 test("salary ranges and multiple prices are protected as complete fragments", () => {
 	for (const [text, values] of [
+		["$50-$150/hr", ["$50-$150/hr"]],
 		["$50–$150/hr", ["$50–$150/hr"]],
+		["$50—$150/hr", ["$50—$150/hr"]],
 		[
 			"Pay $50-$150/hr, $200/day, and $1,000.50 per week.",
 			["$50-$150/hr", "$200/day", "$1,000.50"],
@@ -42,6 +44,63 @@ test("salary ranges and multiple prices are protected as complete fragments", ()
 			values,
 		);
 	}
+});
+
+test("whitespace-padded dollar math stays intact while prose is translated", () => {
+	for (const math of ["$ x + y $", "$ x + y$", "$x + y $"]) {
+		const masked = maskProtectedFragments(`Use ${math} here.`);
+		assert.deepEqual(
+			masked.tokens.map(({ value }) => value),
+			[math],
+		);
+		assert.equal(masked.maskedText, "Use __OT_TOKEN_1__ here.");
+		const translation = masked.maskedText
+			.replace("Use", "使用")
+			.replace("here", "在此處");
+		validateProtectedFragments(
+			[
+				{
+					id: "math",
+					text: masked.maskedText,
+					protectedFragments: masked.tokens,
+				},
+			],
+			[{ id: "math", translation }],
+		);
+		assert.equal(
+			unmaskProtectedFragments(translation, masked.tokens),
+			`使用 ${math} 在此處.`,
+		);
+	}
+});
+
+test("multiple prices and padded math leave surrounding prose translatable", () => {
+	const text =
+		"Pay $5, $10, and $15. Use $ x + y $, $ x + y$, $x + y $, and $2 + 3$ here.";
+	const masked = maskProtectedFragments(text);
+	assert.deepEqual(
+		masked.tokens.map(({ value }) => value),
+		["$5", "$10", "$15", "$ x + y $", "$ x + y$", "$x + y $", "$2 + 3$"],
+	);
+	const translation = masked.maskedText
+		.replace("Pay", "支付")
+		.replaceAll("and", "和")
+		.replace("Use", "使用")
+		.replace("here", "在此處");
+	validateProtectedFragments(
+		[
+			{
+				id: "mixed",
+				text: masked.maskedText,
+				protectedFragments: masked.tokens,
+			},
+		],
+		[{ id: "mixed", translation }],
+	);
+	assert.equal(
+		unmaskProtectedFragments(translation, masked.tokens),
+		"支付 $5, $10, 和 $15. 使用 $ x + y $, $ x + y$, $x + y $, 和 $2 + 3$ 在此處.",
+	);
 });
 
 test("masking does not nest generated or pre-extracted placeholders", () => {

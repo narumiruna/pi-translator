@@ -5,8 +5,9 @@ const { createStaticServer } = require("./lib/extension-test-helpers.cjs");
 
 async function main() {
 	const server = await createStaticServer(path.resolve(__dirname, ".."));
-	const browser = await chromium.launch({ headless: true });
+	let browser;
 	try {
+		browser = await chromium.launch({ headless: true });
 		const page = await browser.newPage();
 		for (const width of [1440, 390]) {
 			await page.setViewportSize({ width, height: 1000 });
@@ -68,6 +69,50 @@ async function main() {
 					}
 					return e.querySelectorAll("[data-ot-role='note']").length === 1;
 				});
+				const placementSources = [
+					document.querySelector("#placement-paragraph"),
+					document.querySelector("#placement-item"),
+				];
+				const originalTags = placementSources.map(
+					(source) => source.nextElementSibling.tagName,
+				);
+				const originalBodies = placementSources.map((source) =>
+					source.nextElementSibling.querySelector("[data-ot-role='note-body']"),
+				);
+				const placementFlow = document.querySelector("#placement-flow");
+				const placementList = document.querySelector("#placement-list");
+				placementFlow.style.display = "grid";
+				placementList.style.display = "flex";
+				placementList.style.flexDirection = "column";
+				window.dispatchEvent(new Event("resize"));
+				const childMode = placementSources.every((source, index) => {
+					const note = source.querySelector("[data-ot-role='note']");
+					return (
+						note?.tagName === "SPAN" &&
+						note.getAttribute("data-phase") === "ready" &&
+						note.getAttribute("data-lang") === "zh-TW" &&
+						note.querySelector("[data-ot-role='note-body']") ===
+							originalBodies[index] &&
+						note.getBoundingClientRect().width > 1
+					);
+				});
+				render();
+				placementFlow.style.removeProperty("display");
+				placementList.style.removeProperty("display");
+				window.dispatchEvent(new Event("resize"));
+				const siblingMode = placementSources.every((source, index) => {
+					const note = source.nextElementSibling;
+					return (
+						!source.querySelector("[data-ot-role='note']") &&
+						note?.tagName === originalTags[index] &&
+						note.querySelector("[data-ot-role='note-body']") ===
+							originalBodies[index]
+					);
+				});
+				render();
+				const placementCount = document.querySelectorAll(
+					"[data-ot-role='note']",
+				).length;
 				const clipped = document.querySelector("#clipped-source");
 				const externalVisible =
 					clipped.nextElementSibling.getBoundingClientRect().top >=
@@ -122,6 +167,10 @@ async function main() {
 					second,
 					count,
 					inside,
+					originalTags,
+					childMode,
+					siblingMode,
+					placementCount,
 					externalVisible,
 					rowVisible,
 					unsafeHidden,
@@ -135,11 +184,15 @@ async function main() {
 					action,
 				};
 			});
-			assert.equal(result.first.rendered, 6);
-			assert.equal(result.second.rendered, 6);
+			assert.equal(result.first.rendered, 8);
+			assert.equal(result.second.rendered, 8);
 			assert.deepEqual(result.after, result.before);
-			assert.equal(result.count, 6);
+			assert.equal(result.count, 8);
 			assert.equal(result.inside, true);
+			assert.deepEqual(result.originalTags, ["P", "LI"]);
+			assert.equal(result.childMode, true);
+			assert.equal(result.siblingMode, true);
+			assert.equal(result.placementCount, 8);
 			assert.equal(result.externalVisible, true);
 			assert.equal(result.rowVisible, true);
 			assert.equal(result.unsafeHidden, true);
@@ -160,8 +213,11 @@ async function main() {
 			console.log(`Layout regression passed at ${width}px`);
 		}
 	} finally {
-		await browser.close();
-		await server.close();
+		try {
+			await browser?.close();
+		} finally {
+			await server.close();
+		}
 	}
 }
 main().catch((error) => {

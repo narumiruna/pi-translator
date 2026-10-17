@@ -57,7 +57,10 @@ export function createContentRenderer(options = {}) {
 		sourceElement,
 		insertionTarget = sourceElement,
 	) {
-		if (isLayoutItem(insertionTarget)) {
+		if (
+			isLayoutItem(insertionTarget) &&
+			shouldAppendNoteInsideTarget(insertionTarget)
+		) {
 			return "span";
 		}
 
@@ -112,8 +115,32 @@ export function createContentRenderer(options = {}) {
 		);
 	}
 
-	function insertNoteForTarget(insertionTarget, note) {
-		if (shouldAppendNoteInsideTarget(insertionTarget)) {
+	function normalizeNoteElement(sourceElement, insertionTarget, note) {
+		const tagName = SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)
+			? "div"
+			: getNoteElementTagName(sourceElement, insertionTarget);
+		if (!note.tagName || note.tagName.toLowerCase() === tagName) return note;
+		const replacement = document.createElement(tagName);
+		for (const attribute of note.attributes) {
+			replacement.setAttribute(attribute.name, attribute.value);
+		}
+		replacement.append(...note.childNodes);
+		note.replaceWith(replacement);
+		return replacement;
+	}
+
+	function insertNoteForTarget(
+		insertionTarget,
+		note,
+		sourceElement = insertionTarget,
+	) {
+		const appendInside = shouldAppendNoteInsideTarget(insertionTarget);
+		if (!appendInside && !canInsertSiblingNote(insertionTarget)) {
+			note.style?.setProperty("display", "none", "important");
+			return note;
+		}
+		note = normalizeNoteElement(sourceElement, insertionTarget, note);
+		if (appendInside) {
 			note.style?.removeProperty("display");
 			note.style?.removeProperty("order");
 			if (
@@ -122,11 +149,7 @@ export function createContentRenderer(options = {}) {
 			) {
 				insertionTarget.appendChild(note);
 			}
-			return;
-		}
-		if (!canInsertSiblingNote(insertionTarget)) {
-			note.style?.setProperty("display", "none", "important");
-			return;
+			return note;
 		}
 		note.style?.removeProperty("display");
 		const parentStyle =
@@ -152,6 +175,7 @@ export function createContentRenderer(options = {}) {
 				note,
 			);
 		}
+		return note;
 	}
 
 	function reconcileNotePlacements() {
@@ -166,7 +190,7 @@ export function createContentRenderer(options = {}) {
 				const note = notes.get(source.getAttribute(SOURCE_ATTR));
 				if (!note) continue;
 				const target = getNoteInsertionTarget(source);
-				if (target) insertNoteForTarget(target, note);
+				if (target) insertNoteForTarget(target, note, source);
 				else note.style.setProperty("display", "none", "important");
 			}
 		});
@@ -480,7 +504,7 @@ export function createContentRenderer(options = {}) {
 		}
 
 		const existingNote = getExistingNoteForSource(element, id);
-		const note = existingNote || buildNote(element, id, insertionTarget);
+		let note = existingNote || buildNote(element, id, insertionTarget);
 		const label = note.querySelector(`[${ROOT_ATTR}="note-label"]`);
 		const body = note.querySelector(`[${ROOT_ATTR}="note-body"]`);
 
@@ -497,7 +521,7 @@ export function createContentRenderer(options = {}) {
 				sourceText,
 			});
 
-			insertNoteForTarget(insertionTarget, note);
+			note = insertNoteForTarget(insertionTarget, note, element);
 
 			SubtitleApi.applySubtitleDisplayMode(
 				ACTIVE_SITE_PROFILE,
@@ -528,14 +552,14 @@ export function createContentRenderer(options = {}) {
 				continue;
 			}
 
-			const note =
+			let note =
 				getExistingNoteForSource(element, id) ||
 				buildNote(element, id, insertionTarget);
 
 			withObserverPaused(() => {
 				setNotePending(note, payload.targetLanguage);
 
-				insertNoteForTarget(insertionTarget, note);
+				note = insertNoteForTarget(insertionTarget, note, element);
 			});
 			setSourceQueued(element, true);
 			rendered += 1;
