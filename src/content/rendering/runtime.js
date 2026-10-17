@@ -39,7 +39,7 @@ export function createContentRenderer(options = {}) {
 		settleYoutubeCaptionFallbacks,
 		isDebugInfoEnabled,
 	} = options;
-	function isGridItem(element) {
+	function isLayoutItem(element) {
 		const parent = element?.parentElement;
 
 		if (!parent) {
@@ -48,14 +48,16 @@ export function createContentRenderer(options = {}) {
 
 		const parentDisplay = window.getComputedStyle(parent).display;
 
-		return parentDisplay === "grid" || parentDisplay === "inline-grid";
+		return ["grid", "inline-grid", "flex", "inline-flex"].includes(
+			parentDisplay,
+		);
 	}
 
 	function getNoteElementTagName(
 		sourceElement,
 		insertionTarget = sourceElement,
 	) {
-		if (isGridItem(insertionTarget)) {
+		if (isLayoutItem(insertionTarget)) {
 			return "span";
 		}
 
@@ -80,7 +82,7 @@ export function createContentRenderer(options = {}) {
 	function shouldAppendNoteInsideTarget(element) {
 		const tagName = element?.tagName ? element.tagName.toLowerCase() : "";
 
-		return tagName === "td" || tagName === "th" || isGridItem(element);
+		return tagName === "td" || tagName === "th" || isLayoutItem(element);
 	}
 
 	function insertNoteForTarget(insertionTarget, note) {

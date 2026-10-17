@@ -10,6 +10,39 @@ import {
 	splitTextRecursively,
 } from "../src/translation/chunk-plan.js";
 
+import { validateProtectedFragments } from "../src/translation/protected-fragments.js";
+
+test("hard splitting keeps currency and DOM math placeholders atomic", () => {
+	for (const suffix of ["$50", "$50–$150/hr", "__OT_MATH_1__"]) {
+		const text = "漢".repeat(4990) + suffix;
+		const plan = createRecursiveChunkPlan([
+			{
+				id: "long",
+				text,
+				protectedFragments: suffix.startsWith("__OT_")
+					? [{ placeholder: suffix, value: "$x$", preservePlaceholder: true }]
+					: [],
+			},
+		]);
+		const translations = plan.expandedItems.map((item) => ({
+			id: item.id,
+			translation: item.text,
+		}));
+		validateProtectedFragments(plan.expandedItems, translations);
+		const merged = mergeRecursiveTranslations(plan, translations);
+		assert.equal(merged[0].translation, text);
+		assert.doesNotMatch(merged[0].translation, /__OT_TOKEN/);
+		assert.equal(plan.expandedItems.length, 2);
+	}
+});
+
+test("hard splitting makes progress when a placeholder exceeds the limit", () => {
+	assert.deepEqual(splitTextRecursively("__OT_TOKEN_123__tail", 5), [
+		{ text: "__OT_TOKEN_123__", joiner: "" },
+		{ text: "tail", joiner: "" },
+	]);
+});
+
 test("chunk plan preserves empty inputs and one empty request per blank item", () => {
 	for (const items of [undefined, []]) {
 		assert.deepEqual(createRecursiveChunkPlan(items), {

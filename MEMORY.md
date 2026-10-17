@@ -53,6 +53,8 @@
 - Symptom: reduced-motion preview animations still run. Cause: `.has-fade` and Radix `[data-state="open"]` selectors outrank the media-query reset. Fix: match their specificity in reduced-motion rules and assert computed `animationName`, not only the emulated preference.
 - Symptom: provider responses fail with `Response JSON is missing translations array.` Cause: the provider-neutral `completeSimple` path sends prompts without the old Responses API JSON schema, while the prompt only referred to a “provided schema.” Fix: spell out the required `translations` JSON shape in the default prompt and tolerate a valid unwrapped single translation item.
 
+- Symptom: Anthology role-page prose shrinks to 20 px after translation. Cause: heading sibling notes become extra items in a responsive row flex container. Fix: keep notes inside source flex items, as for grid items, so the website retains its original layout items.
+
 ## TASTE
 - Selection translation UI should default to a compact tooltip-sized card; long content can expand, but the default should prefer density over empty space.
 - Inline page translations should default to a compact, neutral secondary line with a thin accent and explicit translation label; avoid large card backgrounds that overpower host-page hierarchy.

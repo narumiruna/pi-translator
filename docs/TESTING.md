@@ -118,6 +118,13 @@
 20. Translate a GitHub pull request and confirm conversation content is translated while the Development and Notifications sidebars remain untouched
 21. Confirm there is no per-block display toggle UI and no page-level display mode toolbar
 
+### Flex/grid layout regression
+
+1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button.
+2. Open `https://anthologyresearch.ai/roles/ml-systems-engineer-kernels-inference-1a4903/i` with the built extension. Translate at desktop width, then resize to 390 px. Confirm the body remains readable and no horizontal overflow is added.
+3. Confirm the translated salary lines retain `$50–$150/hr`, `$35–$120/hr`, and `$25–$80/hr` without internal placeholders.
+4. Repeat translation, test available translation controls, and open the FAQ items. Confirm notes do not accumulate and page links and controls still work.
+
 ## YouTube subtitle translation
 
 1. Open an auto-caption watch page, including `https://www.youtube.com/watch?v=R3-anFK1YM8`

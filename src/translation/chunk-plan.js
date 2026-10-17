@@ -49,12 +49,28 @@ function splitByBoundary(text, boundary) {
 function hardSplitText(text, limit) {
 	const normalized = normalizeChunkText(text);
 	const parts = [];
+	const placeholders = Array.from(
+		normalized.matchAll(/__OT_(?:TOKEN|MATH)_\d+__/g),
+		(match) => ({ start: match.index, end: match.index + match[0].length }),
+	);
 
-	for (let index = 0; index < normalized.length; index += limit) {
+	for (let index = 0; index < normalized.length; ) {
+		let end = Math.min(index + limit, normalized.length);
+		const crossing = placeholders.find(
+			(token) => token.start < end && end < token.end,
+		);
+		if (crossing) {
+			// Keep a placeholder atomic, even when it exceeds the requested limit.
+			end = crossing.start > index ? crossing.start : crossing.end;
+		}
+		const touchesPlaceholder = placeholders.some(
+			(token) => token.start === end || token.end === end,
+		);
 		parts.push({
-			text: normalized.slice(index, index + limit),
-			joiner: index + limit < normalized.length ? " " : "",
+			text: normalized.slice(index, end),
+			joiner: end < normalized.length && !touchesPlaceholder ? " " : "",
 		});
+		index = end;
 	}
 
 	return parts;

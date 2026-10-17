@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translation layout regression</title>
+<style>
+  body { margin: 20px; }
+  section { display: flex; gap: 32px; max-width: 1000px; margin: auto; }
+  h2 { flex: 0 0 220px; }
+  .body { display: flex; flex-direction: column; flex: 1; min-width: 1px; }
+  .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+  @media (max-width: 700px) {
+    section { flex-direction: column; }
+    h2 { flex-basis: auto; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+<nav><button type="button" id="action" onclick="this.textContent='Clicked'">Test action</button></nav>
+<section>
+  <h2 data-test-source>Compensation</h2>
+  <div class="body"><p data-test-source>Salary ranges: $50–$150/hr, $35–$120/hr, and $25–$80/hr.</p></div>
+</section>
+<div class="grid">
+  <p data-test-source>Automatic grid placement must remain unchanged after translation.</p>
+  <p data-test-source>Another grid item with readable original text.</p>
+</div>
+</html>

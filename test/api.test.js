@@ -8,6 +8,7 @@ import {
 	consumeProgressiveTranslations,
 	createProgressiveMergeState,
 	createRecursiveChunkPlan,
+	createTranslationApi,
 	extractOutputText,
 	getIncompleteSegmentIds,
 	maskProtectedFragments,
@@ -435,6 +436,130 @@ test("requestTranslations retries once when a protected placeholder is missing",
 	assert.deepEqual(result, [
 		{ id: "protected", translation: "執行 __OT_TOKEN_1__" },
 	]);
+});
+
+test("salary ranges and nested code survive request validation and both merge paths", async () => {
+	clearTranslationCache();
+	const text =
+		"Pay $50–$150/hr and $200/day. Use `$x$ and API` with __OT_MATH_1__.";
+	const plan = createRecursiveChunkPlan(
+		[
+			{
+				id: "salary",
+				text,
+				protectedFragments: [
+					{
+						placeholder: "__OT_MATH_1__",
+						value: "$y$",
+						preservePlaceholder: true,
+					},
+				],
+			},
+		],
+		48,
+	);
+	const state = createProgressiveMergeState(plan);
+	const completed = [];
+	const result = await requestTranslationsBatchedProgressive({
+		settings: buildSettings({ model: "salary-round-trip" }),
+		chunks: plan.chunks,
+		async fetchImpl(_url, options) {
+			const body = JSON.parse(options.body);
+			const item = JSON.parse(body.input[1].content.split("\n\n").at(-1));
+			return {
+				ok: true,
+				text: async () =>
+					JSON.stringify({
+						output_parsed: {
+							translations: [
+								{
+									id: item.id,
+									translation: item.text
+										.replace("Pay", "支付")
+										.replace("Use", "使用"),
+								},
+							],
+						},
+					}),
+			};
+		},
+		onChunkResolved({ translations }) {
+			completed.push(
+				...consumeProgressiveTranslations(plan, state, translations),
+			);
+		},
+	});
+	assert.deepEqual(result.failures, []);
+	assert.deepEqual(
+		completed,
+		mergeRecursiveTranslations(plan, result.successes),
+	);
+	assert.equal(
+		completed[0].translation,
+		text.replace("Pay", "支付").replace("Use", "使用"),
+	);
+	assert.doesNotMatch(completed[0].translation, /__OT_TOKEN_/);
+	assert.equal(completed[0].protectedFragments.length, 1);
+});
+
+test("corrupted tokens fail both response paths without emitting or caching translations", async () => {
+	for (const useProviderRuntime of [false, true]) {
+		for (const corrupted of [
+			"__OT_TOKEN_99__",
+			"__OT_TOKEN_X__",
+			"__OT_TOKEN_1_",
+			"__OT_TOKEN_1__",
+			"__OT_MATH_99__",
+		]) {
+			clearTranslationCache();
+			let calls = 0;
+			let fail = true;
+			const plan = createRecursiveChunkPlan([
+				{ id: "protected", text: "Use API" },
+			]);
+			const makeResponse = () => {
+				calls += 1;
+				return {
+					translations: [
+						{
+							id: "protected",
+							translation: `使用 __OT_TOKEN_1__${fail ? ` ${corrupted}` : ""}`,
+						},
+					],
+				};
+			};
+			const api = useProviderRuntime
+				? createTranslationApi({
+						getModelCacheIdentity: async () => "placeholder-validation",
+						complete: async () => ({ text: JSON.stringify(makeResponse()) }),
+					})
+				: { requestTranslationsBatchedProgressive };
+			const emitted = [];
+			const options = {
+				settings: buildSettings({ model: "corrupted-tokens" }),
+				chunks: plan.chunks,
+				fetchImpl: async () => ({
+					ok: true,
+					text: async () => JSON.stringify({ output_parsed: makeResponse() }),
+				}),
+				onChunkResolved: ({ translations }) => emitted.push(...translations),
+			};
+			const failed = await api.requestTranslationsBatchedProgressive(options);
+			assert.equal(calls, 2);
+			assert.deepEqual(failed.successes, []);
+			assert.deepEqual(emitted, []);
+			assert.equal(failed.failures.length, 1);
+			assert.match(failed.failures[0].error.message, /Protected placeholder/);
+			fail = false;
+			const retried = await api.requestTranslationsBatchedProgressive(options);
+			assert.equal(calls, 3);
+			assert.deepEqual(retried.failures, []);
+			assert.equal(
+				mergeRecursiveTranslations(plan, retried.successes)[0].translation,
+				"使用 API",
+			);
+		}
+	}
 });
 
 test("requestTranslations does not retry HTTP failures", async () => {

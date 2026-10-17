@@ -386,6 +386,36 @@ test("grid notes stay inside auto, explicit, and responsive source placement", (
 	}
 });
 
+test("flex notes stay within their source across responsive directions", () => {
+	for (const display of ["flex", "inline-flex"]) {
+		for (const flexDirection of [
+			"row",
+			"row-reverse",
+			"column",
+			"column-reverse",
+		]) {
+			const parent = createFakeElement({
+				computedStyle: { display, flexDirection },
+			});
+			const source = createFakeElement({
+				parentElement: parent,
+				tagName: "H2",
+			});
+			const children = new Set();
+			const note = {};
+			source.appendChild = (child) => children.add(child);
+			source.insertAdjacentElement = () =>
+				assert.fail("Must not create another flex item");
+			assert.equal(_getNoteElementTagName(source), "span");
+			assert.equal(_shouldAppendNoteInsideTarget(source), true);
+			_insertNoteForTarget(source, note);
+			parent.computedStyle.flexDirection = "column";
+			_insertNoteForTarget(source, note);
+			assert.equal(children.size, 1);
+		}
+	}
+});
+
 test("nested grid notes are excluded from source text", () => {
 	const note = createSerializableElement({
 		attributes: { "data-ot-role": "note" },
