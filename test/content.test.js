@@ -356,6 +356,7 @@ test("constrained table cells never insert notes under their row", () => {
 			{ display: "grid" },
 			{ overflowX: "hidden", overflowY: "hidden" },
 			{ maxHeight: "24px" },
+			{ height: "24px" },
 			{ contain: "paint" },
 		]) {
 			const cell = createFakeElement({
@@ -455,6 +456,7 @@ test("constrained flex items use sibling notes only in safe column layouts", () 
 		{ display: "grid" },
 		{ overflowX: "hidden", overflowY: "hidden" },
 		{ maxHeight: "24px" },
+		{ height: "24px" },
 		{ contain: "paint" },
 	]) {
 		const parent = createFakeElement({
@@ -486,6 +488,51 @@ test("constrained flex items use sibling notes only in safe column layouts", () 
 		_insertNoteForTarget(source, note);
 		assert.equal(properties.get("display"), "none");
 		assert.equal(insertions.length, 2);
+	}
+});
+
+test("child placement uses computed height rather than used pixel height", () => {
+	for (const height of ["auto", "24px", "50%", "calc(50% + 24px)"]) {
+		const source = createFakeElement({
+			tagName: "P",
+			computedStyle: { height: "24px" },
+			parentElement: createFakeElement({
+				computedStyle: { display: "grid" },
+			}),
+		});
+		source.computedStyleMap = () =>
+			new Map([["height", { toString: () => height }]]);
+		assert.equal(_shouldAppendNoteInsideTarget(source), height === "auto");
+		assert.equal(_isSafeNoteInsertionTarget(source), height === "auto");
+	}
+});
+
+test("fixed flex basis blocks child placement only on a vertical main axis", () => {
+	for (const writingMode of ["horizontal-tb", "vertical-rl", "sideways-lr"]) {
+		for (const flexDirection of [
+			"row",
+			"row-reverse",
+			"column",
+			"column-reverse",
+		]) {
+			for (const flexBasis of ["auto", "content", "24px", "0%"]) {
+				const source = createFakeElement({
+					tagName: "P",
+					computedStyle: { flexBasis },
+					parentElement: createFakeElement({
+						computedStyle: { display: "flex", writingMode, flexDirection },
+					}),
+				});
+				const verticalDirections =
+					writingMode === "horizontal-tb"
+						? ["column", "column-reverse"]
+						: ["row", "row-reverse"];
+				const allowed =
+					["auto", "content"].includes(flexBasis) ||
+					!verticalDirections.includes(flexDirection);
+				assert.equal(_shouldAppendNoteInsideTarget(source), allowed);
+			}
+		}
 	}
 });
 

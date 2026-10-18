@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium } = require("playwright");
 const { createStaticServer } = require("./lib/extension-test-helpers.cjs");
+const { checkFixedHeights } = require("./lib/fixed-height-checks.cjs");
 const { checkPlacementSafety } = require("./lib/placement-safety-checks.cjs");
 
 async function main() {
@@ -214,6 +215,7 @@ async function main() {
 			console.log(`Layout regression passed at ${width}px`);
 		}
 		await checkPlacementSafety(page, server.origin);
+		await checkFixedHeights(page, server.origin);
 	} finally {
 		try {
 			await browser?.close();

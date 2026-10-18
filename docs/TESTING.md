@@ -121,7 +121,8 @@
 ### Flex/grid layout regression
 
 1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button. CI runs this regression after installing Chromium.
-   - Sources with internal flex/grid layout or clipping must use visible sibling notes under safe flow or column-flex parents.
+   - Sources with internal flex/grid layout, clipping, or a non-auto height must use visible sibling notes under safe flow or column-flex parents.
+   - Check fixed heights from stylesheet rules, logical `block-size`, and vertical `flex-basis`. Notes must not overlap the next item. Auto-height sources without a fixed flex basis must still contain their notes. Height changes must update placement without duplicate notes.
    - When a responsive parent changes to an unsafe row/grid layout, fallback notes must hide without changing the source. They must return when a safe placement is available.
    - Sources without a safe internal or sibling placement are skipped before queueing rather than changing host-page CSS. Check both semantic and fallback extraction, repeated collection, and recovery after the layout becomes safe.
    - Table-cell notes must stay inside their cells. Constrained cells without a safe internal placement must be skipped; never insert a note directly under a table row.

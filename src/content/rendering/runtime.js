@@ -84,7 +84,23 @@ export function createContentRenderer(options = {}) {
 
 	function canAppendNoteInsideTarget(element) {
 		const style = window.getComputedStyle(element);
+		// Typed OM keeps auto distinct from the pixel height returned by CSSOM.
+		const height = element.computedStyleMap?.().get("height") ?? style.height;
+		const parentStyle =
+			element.parentElement && window.getComputedStyle(element.parentElement);
+		const column = ["column", "column-reverse"].includes(
+			parentStyle?.flexDirection,
+		);
+		const verticalWriting = /^(vertical|sideways)-/.test(
+			parentStyle?.writingMode || "",
+		);
+		const fixedFlexHeight =
+			["flex", "inline-flex"].includes(parentStyle?.display) &&
+			column !== verticalWriting &&
+			!["auto", "content"].includes(style.flexBasis || "auto");
 		return (
+			(!height || String(height) === "auto") &&
+			!fixedFlexHeight &&
 			!["flex", "inline-flex", "grid", "inline-grid"].includes(style.display) &&
 			[style.overflowX, style.overflowY].every(
 				(overflow) => !overflow || overflow === "visible",
