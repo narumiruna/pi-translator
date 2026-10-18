@@ -103,6 +103,7 @@ export function createContentRenderer(options = {}) {
 	}
 
 	function canInsertSiblingNote(element) {
+		if (["TD", "TH"].includes(element?.tagName?.toUpperCase())) return false;
 		const parent = element?.parentElement;
 		if (!parent) return true;
 		const style = window.getComputedStyle(parent);

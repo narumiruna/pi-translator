@@ -349,6 +349,39 @@ test("table cell and non-grid notes preserve their insertion behavior", () => {
 	]);
 });
 
+test("constrained table cells never insert notes under their row", () => {
+	for (const tagName of ["TD", "TH"]) {
+		for (const computedStyle of [
+			{ display: "flex" },
+			{ display: "grid" },
+			{ overflowX: "hidden", overflowY: "hidden" },
+			{ maxHeight: "24px" },
+			{ contain: "paint" },
+		]) {
+			const cell = createFakeElement({
+				tagName,
+				computedStyle,
+				parentElement: createFakeElement({
+					tagName: "TR",
+					computedStyle: { display: "table-row" },
+				}),
+			});
+			const styles = new Map();
+			const note = {
+				style: { setProperty: (name, value) => styles.set(name, value) },
+			};
+			cell.appendChild = () =>
+				assert.fail("Unsafe cell must not contain a note");
+			cell.insertAdjacentElement = () =>
+				assert.fail("A note cannot be a sibling of a table cell");
+			assert.equal(_shouldAppendNoteInsideTarget(cell), false);
+			assert.equal(_isSafeNoteInsertionTarget(cell), false);
+			_insertNoteForTarget(cell, note);
+			assert.equal(styles.get("display"), "none");
+		}
+	}
+});
+
 test("grid notes stay inside auto, explicit, and responsive source placement", () => {
 	const gridParent = createFakeElement({
 		computedStyle: { display: "grid" },

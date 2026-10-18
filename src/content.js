@@ -387,6 +387,14 @@ export function createContentRuntime(options = {}) {
 		};
 	}
 
+	function classifyPageCandidate(element) {
+		const analysis = classifyCandidateElement(element);
+		if (analysis.ok && !_isSafeNoteInsertionTarget(element)) {
+			return { ok: false, reason: "unsafe note placement" };
+		}
+		return analysis;
+	}
+
 	function collectSemanticItems(profile, options, debugState) {
 		const items = [];
 		const windowCandidates = [];
@@ -398,7 +406,7 @@ export function createContentRuntime(options = {}) {
 		const viewportOptions = windowed ? getViewportWindowOptions() : null;
 
 		for (const element of elements) {
-			const analysis = classifyCandidateElement(element);
+			const analysis = classifyPageCandidate(element);
 
 			if (!analysis.ok) {
 				recordExtractionDebugSkip(debugState, analysis.reason, element);
@@ -497,7 +505,7 @@ export function createContentRuntime(options = {}) {
 			const parent = currentNode.parentElement;
 			const anchor = parent.closest(READABLE_BLOCK_SELECTOR);
 			const analysis = anchor
-				? classificationCache.get(anchor) || classifyCandidateElement(anchor)
+				? classificationCache.get(anchor) || classifyPageCandidate(anchor)
 				: null;
 
 			if (anchor && analysis && !classificationCache.has(anchor)) {

@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { chromium } = require("playwright");
 const { createStaticServer } = require("./lib/extension-test-helpers.cjs");
+const { checkPlacementSafety } = require("./lib/placement-safety-checks.cjs");
 
 async function main() {
 	const server = await createStaticServer(path.resolve(__dirname, ".."));
@@ -212,6 +213,7 @@ async function main() {
 			);
 			console.log(`Layout regression passed at ${width}px`);
 		}
+		await checkPlacementSafety(page, server.origin);
 	} finally {
 		try {
 			await browser?.close();
