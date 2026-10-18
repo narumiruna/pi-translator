@@ -349,6 +349,40 @@ test("table cell and non-grid notes preserve their insertion behavior", () => {
 	]);
 });
 
+test("constrained table cells never insert notes under their row", () => {
+	for (const tagName of ["TD", "TH"]) {
+		for (const computedStyle of [
+			{ display: "flex" },
+			{ display: "grid" },
+			{ overflowX: "hidden", overflowY: "hidden" },
+			{ maxHeight: "24px" },
+			{ height: "24px" },
+			{ contain: "paint" },
+		]) {
+			const cell = createFakeElement({
+				tagName,
+				computedStyle,
+				parentElement: createFakeElement({
+					tagName: "TR",
+					computedStyle: { display: "table-row" },
+				}),
+			});
+			const styles = new Map();
+			const note = {
+				style: { setProperty: (name, value) => styles.set(name, value) },
+			};
+			cell.appendChild = () =>
+				assert.fail("Unsafe cell must not contain a note");
+			cell.insertAdjacentElement = () =>
+				assert.fail("A note cannot be a sibling of a table cell");
+			assert.equal(_shouldAppendNoteInsideTarget(cell), false);
+			assert.equal(_isSafeNoteInsertionTarget(cell), false);
+			_insertNoteForTarget(cell, note);
+			assert.equal(styles.get("display"), "none");
+		}
+	}
+});
+
 test("grid notes stay inside auto, explicit, and responsive source placement", () => {
 	const gridParent = createFakeElement({
 		computedStyle: { display: "grid" },
@@ -383,6 +417,122 @@ test("grid notes stay inside auto, explicit, and responsive source placement", (
 		computedStyle.gridColumnStart = "1";
 		computedStyle.gridRowStart = "1";
 		assert.equal(note.parentElement, paragraph);
+	}
+});
+
+test("flex notes stay within their source across responsive directions", () => {
+	for (const display of ["flex", "inline-flex"]) {
+		for (const flexDirection of [
+			"row",
+			"row-reverse",
+			"column",
+			"column-reverse",
+		]) {
+			const parent = createFakeElement({
+				computedStyle: { display, flexDirection },
+			});
+			const source = createFakeElement({
+				parentElement: parent,
+				tagName: "H2",
+			});
+			const children = new Set();
+			const note = {};
+			source.appendChild = (child) => children.add(child);
+			source.insertAdjacentElement = () =>
+				assert.fail("Must not create another flex item");
+			assert.equal(_getNoteElementTagName(source), "span");
+			assert.equal(_shouldAppendNoteInsideTarget(source), true);
+			_insertNoteForTarget(source, note);
+			parent.computedStyle.flexDirection = "column";
+			_insertNoteForTarget(source, note);
+			assert.equal(children.size, 1);
+		}
+	}
+});
+
+test("constrained flex items use sibling notes only in safe column layouts", () => {
+	for (const computedStyle of [
+		{ display: "flex" },
+		{ display: "grid" },
+		{ overflowX: "hidden", overflowY: "hidden" },
+		{ maxHeight: "24px" },
+		{ height: "24px" },
+		{ contain: "paint" },
+	]) {
+		const parent = createFakeElement({
+			computedStyle: { display: "flex", flexDirection: "column" },
+		});
+		const source = createFakeElement({
+			parentElement: parent,
+			computedStyle,
+			tagName: "P",
+		});
+		const insertions = [];
+		const properties = new Map();
+		const note = {
+			style: {
+				setProperty: (name, value) => properties.set(name, value),
+				removeProperty: (name) => properties.delete(name),
+			},
+		};
+		source.appendChild = () =>
+			assert.fail("Constrained source must not contain the note");
+		source.insertAdjacentElement = (position) => insertions.push(position);
+		assert.equal(_shouldAppendNoteInsideTarget(source), false);
+		_insertNoteForTarget(source, note);
+		assert.deepEqual(insertions, ["afterend"]);
+		parent.computedStyle.flexDirection = "column-reverse";
+		_insertNoteForTarget(source, note);
+		assert.deepEqual(insertions, ["afterend", "beforebegin"]);
+		parent.computedStyle.flexDirection = "row";
+		_insertNoteForTarget(source, note);
+		assert.equal(properties.get("display"), "none");
+		assert.equal(insertions.length, 2);
+	}
+});
+
+test("child placement uses computed height rather than used pixel height", () => {
+	for (const height of ["auto", "24px", "50%", "calc(50% + 24px)"]) {
+		const source = createFakeElement({
+			tagName: "P",
+			computedStyle: { height: "24px" },
+			parentElement: createFakeElement({
+				computedStyle: { display: "grid" },
+			}),
+		});
+		source.computedStyleMap = () =>
+			new Map([["height", { toString: () => height }]]);
+		assert.equal(_shouldAppendNoteInsideTarget(source), height === "auto");
+		assert.equal(_isSafeNoteInsertionTarget(source), height === "auto");
+	}
+});
+
+test("fixed flex basis blocks child placement only on a vertical main axis", () => {
+	for (const writingMode of ["horizontal-tb", "vertical-rl", "sideways-lr"]) {
+		for (const flexDirection of [
+			"row",
+			"row-reverse",
+			"column",
+			"column-reverse",
+		]) {
+			for (const flexBasis of ["auto", "content", "24px", "0%"]) {
+				const source = createFakeElement({
+					tagName: "P",
+					computedStyle: { flexBasis },
+					parentElement: createFakeElement({
+						computedStyle: { display: "flex", writingMode, flexDirection },
+					}),
+				});
+				const verticalDirections =
+					writingMode === "horizontal-tb"
+						? ["column", "column-reverse"]
+						: ["row", "row-reverse"];
+				const allowed =
+					["auto", "content"].includes(flexBasis) ||
+					!verticalDirections.includes(flexDirection);
+				assert.equal(_shouldAppendNoteInsideTarget(source), allowed);
+			}
+		}
 	}
 });
 

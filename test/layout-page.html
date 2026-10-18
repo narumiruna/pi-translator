@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translation layout regression</title>
+<style>
+  body { margin: 20px; }
+  section { display: flex; gap: 32px; max-width: 1000px; margin: auto; }
+  h2 { flex: 0 0 220px; }
+  .body { display: flex; flex-direction: column; flex: 1; min-width: 1px; }
+  .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+  .review-cases { display: flex; flex-direction: column; width: min(350px, 100%); }
+  #flex-source { display: flex; }
+  #flex-source > span { flex: 0 0 320px; }
+  #clipped-source { height: 24px; overflow: hidden; }
+  #placement-flow p > p, #placement-list li > li { max-width: 1px; }
+  @media (max-width: 700px) {
+    section { flex-direction: column; }
+    h2 { flex-basis: auto; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+<nav><button type="button" id="action" onclick="this.textContent='Clicked'">Test action</button></nav>
+<section>
+  <h2 data-test-source>Compensation</h2>
+  <div class="body"><p data-test-source>Salary ranges: $50–$150/hr, $35–$120/hr, and $25–$80/hr.</p></div>
+</section>
+<div class="grid">
+  <p data-test-source>Automatic grid placement must remain unchanged after translation.</p>
+  <p data-test-source>Another grid item with readable original text.</p>
+</div>
+<article class="review-cases">
+  <p id="flex-source" data-test-source data-test-external><span>This is readable original text in a row layout.</span></p>
+  <p id="clipped-source" data-test-source data-test-external>This is a paragraph that must remain readable with its translation.</p>
+</article>
+<article id="placement-flow">
+  <p id="placement-paragraph" data-test-source data-test-external>This paragraph must keep the same text and translation after its parent layout changes.</p>
+</article>
+<ul id="placement-list">
+  <li id="placement-item" data-test-source data-test-external>This list item must keep its text and translation after its parent layout changes.</li>
+</ul>
+</html>

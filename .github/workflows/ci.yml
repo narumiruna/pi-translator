@@ -32,6 +32,9 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Run translation layout regression
+        run: node e2e/layout-regression.cjs
+
       - name: Run production-artifact smoke tests
         run: PLAYWRIGHT_HEADLESS=1 npm run e2e:mock
 
