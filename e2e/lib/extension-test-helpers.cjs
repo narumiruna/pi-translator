@@ -405,8 +405,14 @@ async function saveOptions(context, extensionId, config, options = {}) {
 			},
 		});
 	}, config.apiKey);
-	await page.locator("#provider").fill("openai-compatible");
-	await page.locator("#provider").press("Enter");
+	const provider = page.locator("#provider");
+	// Focus first so the picker settles before Playwright replaces its label.
+	await provider.click();
+	await provider.fill("openai-compatible");
+	await page
+		.getByRole("option", { name: /^Custom OpenAI-compatible/u })
+		.waitFor({ state: "visible" });
+	await provider.press("Enter");
 	await page.locator("#custom-base-url").fill(config.baseUrl);
 	await page.locator("#model").fill(config.model);
 	await page.locator("#target-language").fill(config.targetLanguage);
