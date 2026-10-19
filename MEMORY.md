@@ -2,6 +2,8 @@
 
 ## GOTCHA
 
+- Playwright `fill()` on a newly loaded searchable provider can append to the initial label under CPU load. Click the input first, fill the query, and wait for the matching option before pressing Enter; reproduce with Chromium CPU throttling.
+
 - pi-ai ignores reasoning levels for models with `reasoning: false`; custom endpoints must opt in when a basic level is explicitly selected, while Default and unsupported saved levels must keep that flag false to avoid sending `reasoning.effort: "none"`.
 
 - Anthropic SDK 0.129 exports `Anthropic`, `Beta`, and `Messages` as classes inside exported IIFEs, not top-level class declarations; the browser SDK trimmer must inspect the wrapper body and remove unused static resources there too.
