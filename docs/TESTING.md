@@ -194,7 +194,7 @@ Recovery and subtitle batch deadlines are internal constants. The background att
 
 ### Automated evidence (2026-10-21)
 
-- Formatting, lint, module checks, 459 unit tests, production build, and artifact verification passed. The bundle still reports performance-budget and PDF `tabs` compatibility warnings; no permissions were added to suppress them.
+- Formatting, lint, module checks, 460 unit tests, production build, and artifact verification passed. The bundle still reports performance-budget and PDF `tabs` compatibility warnings; no permissions were added to suppress them.
 - Packaged tests cover four actual worker stops, 31-second pauses, five real stalled SSE connections, the 30-second deadline, healthy SPA request cancellation, stale-message rejection, video replacement, both display modes, and cues at 600,000 and 1,200,000 ms.
 - Mock page, selection, iframe, reinjection, partial-failure, appearance, PDF, desktop/mobile layout, and fixed-height placement browser regressions passed. The Chrome ZIP was built and verified locally; no package or release was published.
 - CI runs the complete packaged fixture suite with `--fixture-only` and explicitly logs that the public-page smoke was not run. GitHub-hosted runners displayed YouTube's “Sign in to confirm you're not a bot” page; native controls were unavailable. The default command still requires the real-page smoke, which passed locally.

@@ -121,6 +121,12 @@ async function observeContentMessages(context, page, extensionId) {
 
 async function createWorkerStopper(context, page, extensionId) {
 	const session = await context.newCDPSession(page);
+	const getExtensionWorker = () =>
+		context
+			.serviceWorkers()
+			.find((worker) =>
+				worker.url().startsWith(`chrome-extension://${extensionId}/`),
+			);
 	let current;
 	const events = [];
 	session.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
@@ -136,12 +142,10 @@ async function createWorkerStopper(context, page, extensionId) {
 		async stop() {
 			await waitFor(() => current?.runningStatus === "running");
 			const marker = `${Date.now()}-${Math.random()}`;
-			await context
-				.serviceWorkers()
-				.at(-1)
-				.evaluate((value) => {
-					globalThis.__e2eWorkerMarker = value;
-				}, marker);
+			await waitFor(() => Boolean(getExtensionWorker()));
+			await getExtensionWorker().evaluate((value) => {
+				globalThis.__e2eWorkerMarker = value;
+			}, marker);
 			const from = events.length;
 			await session.send("ServiceWorker.stopWorker", {
 				versionId: current.versionId,
@@ -158,13 +162,24 @@ async function createWorkerStopper(context, page, extensionId) {
 				await waitFor(() =>
 					events.slice(from).some((event) => event.runningStatus === "running"),
 				);
-				assert.equal(
-					await context
-						.serviceWorkers()
-						.at(-1)
-						.evaluate(() => globalThis.__e2eWorkerMarker),
-					undefined,
-					"A restarted worker must not retain the old JavaScript heap.",
+				await waitFor(
+					async () => {
+						const worker = getExtensionWorker();
+						if (!worker) return false;
+						try {
+							return (
+								(await worker.evaluate(() => globalThis.__e2eWorkerMarker)) ===
+								undefined
+							);
+						} catch {
+							return false;
+						}
+					},
+					{
+						timeoutMs: 15000,
+						timeoutMessage:
+							"A restarted extension worker must not retain the old JavaScript heap.",
+					},
 				);
 			};
 		},
