@@ -362,7 +362,13 @@ async function main() {
 			runConnectionTest: false,
 		});
 
-		await runLiveYoutubePlayerSmoke({ ...runState, config });
+		if (process.argv.includes("--fixture-only")) {
+			console.log(
+				"Live YouTube smoke not run: --fixture-only uses the packaged synthetic player.",
+			);
+		} else {
+			await runLiveYoutubePlayerSmoke({ ...runState, config });
+		}
 
 		const page = await runState.context.newPage();
 		await page.setViewportSize({ width: 1280, height: 800 });

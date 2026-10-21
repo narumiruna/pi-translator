@@ -168,6 +168,8 @@ Use the built extension and a mock provider for automated failure tests:
 ```sh
 npm run check
 npm run e2e:youtube
+# CI: packaged recovery cases without the public YouTube smoke
+npm run e2e:youtube -- --fixture-only
 ```
 
 The suite first checks player control placement, content injection, and startup on an unmodified public YouTube page. Detailed recovery cases use synthetic video IDs on the existing YouTube origin, the packaged content script and background worker, and a local mock API. The real-page smoke requires network access to YouTube. No live translation API calls are required. It stops the actual worker with CDP `ServiceWorker.stopWorker`, checks stopped/running events, and verifies that a worker-global probe disappears after restart. Worker target IDs can remain unchanged.
@@ -195,12 +197,14 @@ Recovery and subtitle batch deadlines are internal constants. The background att
 - Formatting, lint, module checks, 459 unit tests, production build, and artifact verification passed. The bundle still reports performance-budget and PDF `tabs` compatibility warnings; no permissions were added to suppress them.
 - Packaged tests cover four actual worker stops, 31-second pauses, five real stalled SSE connections, the 30-second deadline, healthy SPA request cancellation, stale-message rejection, video replacement, both display modes, and cues at 600,000 and 1,200,000 ms.
 - Mock page, selection, iframe, reinjection, partial-failure, appearance, PDF, desktop/mobile layout, and fixed-height placement browser regressions passed. The Chrome ZIP was built and verified locally; no package or release was published.
-- CI runs the YouTube suite and uploads screenshots in the `vibe-translator-chrome` artifact under `e2e-artifacts/`. Rendering evidence includes `youtube-live-player.png`, `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. Screenshots are not committed.
+- CI runs the complete packaged fixture suite with `--fixture-only` and explicitly logs that the public-page smoke was not run. GitHub-hosted runners displayed YouTube's “Sign in to confirm you're not a bot” page; native controls were unavailable. The default command still requires the real-page smoke, which passed locally.
+- CI uploads fixture screenshots in the `vibe-translator-chrome` artifact under `e2e-artifacts/`, including `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. The local real-page capture is `youtube-live-player.png`. Screenshots are not committed.
 
 ### Remaining live checks
 
 These checks are separate from automated-plan completion:
 
+- **Hosted-runner live smoke — CI maintainer:** Use a runner with legitimate access to a playable public YouTube page, then run the default `npm run e2e:youtube` command without `--fixture-only`. Expected result: real player controls, content injection, and startup pass with the mock provider. The public-page smoke is blocked by YouTube's bot check on the current GitHub-hosted runner. Do not claim real-page CI validation until it passes on an accessible runner. Do not bypass the bot check or use credentials in test artifacts.
 - **Incident diagnosis — affected user:** With the failing video and installed extension, copy diagnostics when translation stops. Record playback time, any pause or ad transition, and whether native captions still update. Expected result: identify the failure stage without sharing credentials. The cause of the original incident is still unconfirmed; synthetic recovery tests alone do not establish that it is resolved.
 - **Live-provider soak — account owner or authorized tester:** With a configured provider and approval for API usage, play a captioned video for at least 20 real-time minutes. Include pause/resume and an ad transition when available. Capture sanitized diagnostics. Expected result: continued translation or a bounded, actionable error. Live provider delays, account limits, and YouTube runtime changes remain unverified until this check is recorded. Do not claim live-provider long-playback validation before then.
 

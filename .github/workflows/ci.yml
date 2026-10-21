@@ -41,8 +41,8 @@ jobs:
       - name: Run production-artifact PDF regression
         run: PLAYWRIGHT_HEADLESS=1 npm run e2e:pdf
 
-      - name: Run production-artifact YouTube recovery regression
-        run: PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:youtube
+      - name: Run production-artifact YouTube recovery regression (fixtures)
+        run: PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:youtube -- --fixture-only
 
       - name: Create verified Chrome ZIP
         run: npm run zip
