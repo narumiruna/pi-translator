@@ -13,7 +13,10 @@ const {
 	waitFor,
 } = require("./lib/extension-test-helpers.cjs");
 
-const { routeYoutubeFixture } = require("./lib/youtube-fixture.cjs");
+const {
+	getExtensionWorker,
+	routeYoutubeFixture,
+} = require("./lib/youtube-fixture.cjs");
 const { runYoutubeRecoveryCases } = require("./lib/youtube-recovery.cjs");
 const { runLiveYoutubePlayerSmoke } = require("./lib/youtube-live-player.cjs");
 
@@ -326,8 +329,8 @@ async function installCaptionTrackMetadata(page, options = {}) {
 	);
 }
 
-async function clearStoredSettings(context) {
-	const worker = context.serviceWorkers()[0];
+async function clearStoredSettings(context, extensionId) {
+	const worker = getExtensionWorker(context, extensionId);
 
 	await worker.evaluate(() =>
 		Promise.all([
@@ -902,7 +905,7 @@ async function main() {
 			longCaptions: LONG_CAPTIONS,
 		});
 
-		await clearStoredSettings(runState.context);
+		await clearStoredSettings(runState.context, runState.extensionId);
 		await page.reload({ waitUntil: "domcontentloaded" });
 		const reloadedControl = page.locator(
 			"#movie_player [data-ot-youtube-control]",

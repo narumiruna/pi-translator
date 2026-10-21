@@ -3,7 +3,10 @@ import { createRequire } from "node:module";
 import { test } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { createWorkerStopper } = require("../e2e/lib/youtube-fixture.cjs");
+const {
+	createWorkerStopper,
+	getExtensionWorker,
+} = require("../e2e/lib/youtube-fixture.cjs");
 
 test("restart probes target the extension even when YouTube registers a later worker", async () => {
 	function worker(url) {
@@ -20,6 +23,10 @@ test("restart probes target the extension even when YouTube registers a later wo
 	const original = worker(`${prefix}background/service_worker.js`);
 	const website = worker("https://www.youtube.com/sw.js");
 	let workers = [original, website];
+	assert.equal(
+		getExtensionWorker({ serviceWorkers: () => workers }, "extension"),
+		original,
+	);
 	let onVersions;
 	const version = (runningStatus) => ({
 		scriptURL: `${prefix}background/service_worker.js`,

@@ -6,6 +6,7 @@ const {
 } = require("./extension-test-helpers.cjs");
 const {
 	createWorkerStopper,
+	getExtensionWorker,
 	observeContentMessages,
 } = require("./youtube-fixture.cjs");
 
@@ -401,60 +402,57 @@ async function runYoutubeRecoveryCases(options) {
 			const sourceId = await delayed.page
 				.locator(".ytp-caption-segment")
 				.getAttribute("data-ot-source-id");
-			const replies = await context
-				.serviceWorkers()
-				.at(-1)
-				.evaluate(
-					async ({ pageUrl, sessionId, id, sourceText }) => {
-						const tab = (await chrome.tabs.query({})).find(
-							(candidate) => candidate.url === pageUrl,
-						);
-						const messages = [
-							{
-								type: "render-page-translation-updates",
-								payload: {
-									sessionId,
-									translations: [
-										{
-											id,
-											kind: "subtitle",
-											sourceText,
-											translatedText: "INJECTED OLD SESSION TRANSLATION",
-										},
-									],
-								},
+			const replies = await getExtensionWorker(context, extensionId).evaluate(
+				async ({ pageUrl, sessionId, id, sourceText }) => {
+					const tab = (await chrome.tabs.query({})).find(
+						(candidate) => candidate.url === pageUrl,
+					);
+					const messages = [
+						{
+							type: "render-page-translation-updates",
+							payload: {
+								sessionId,
+								translations: [
+									{
+										id,
+										kind: "subtitle",
+										sourceText,
+										translatedText: "INJECTED OLD SESSION TRANSLATION",
+									},
+								],
 							},
-							{
-								type: "clear-page-placeholders",
-								payload: {
-									sessionId,
-									ids: [id],
-									reason: "api-error",
-									retryable: false,
-								},
+						},
+						{
+							type: "clear-page-placeholders",
+							payload: {
+								sessionId,
+								ids: [id],
+								reason: "api-error",
+								retryable: false,
 							},
-							{
-								type: "render-youtube-diagnostic-event",
-								payload: {
-									sessionId,
-									stage: "api-error",
-									detail: "INJECTED OLD SESSION DIAGNOSTIC",
-								},
+						},
+						{
+							type: "render-youtube-diagnostic-event",
+							payload: {
+								sessionId,
+								stage: "api-error",
+								detail: "INJECTED OLD SESSION DIAGNOSTIC",
 							},
-						];
-						return Promise.all(
-							messages.map((message) =>
-								chrome.tabs.sendMessage(tab.id, message, { frameId: 0 }),
-							),
-						);
-					},
-					{
-						pageUrl: delayed.page.url(),
-						sessionId: delayed.initial.sessionId,
-						id: sourceId || "late-source",
-						sourceText: current,
-					},
-				);
+						},
+					];
+					return Promise.all(
+						messages.map((message) =>
+							chrome.tabs.sendMessage(tab.id, message, { frameId: 0 }),
+						),
+					);
+				},
+				{
+					pageUrl: delayed.page.url(),
+					sessionId: delayed.initial.sessionId,
+					id: sourceId || "late-source",
+					sourceText: current,
+				},
+			);
 			assert.ok(
 				replies.every((reply) => reply.stale === true),
 				"Late old-session render, failure, and diagnostics must be rejected.",

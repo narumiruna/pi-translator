@@ -119,14 +119,17 @@ async function observeContentMessages(context, page, extensionId) {
 	};
 }
 
+function getExtensionWorker(context, extensionId) {
+	return context
+		.serviceWorkers()
+		.find((worker) =>
+			worker.url().startsWith(`chrome-extension://${extensionId}/`),
+		);
+}
+
 async function createWorkerStopper(context, page, extensionId) {
 	const session = await context.newCDPSession(page);
-	const getExtensionWorker = () =>
-		context
-			.serviceWorkers()
-			.find((worker) =>
-				worker.url().startsWith(`chrome-extension://${extensionId}/`),
-			);
+	const findWorker = () => getExtensionWorker(context, extensionId);
 	let current;
 	const events = [];
 	session.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
@@ -142,8 +145,8 @@ async function createWorkerStopper(context, page, extensionId) {
 		async stop() {
 			await waitFor(() => current?.runningStatus === "running");
 			const marker = `${Date.now()}-${Math.random()}`;
-			await waitFor(() => Boolean(getExtensionWorker()));
-			await getExtensionWorker().evaluate((value) => {
+			await waitFor(() => Boolean(findWorker()));
+			await findWorker().evaluate((value) => {
 				globalThis.__e2eWorkerMarker = value;
 			}, marker);
 			const from = events.length;
@@ -164,7 +167,7 @@ async function createWorkerStopper(context, page, extensionId) {
 				);
 				await waitFor(
 					async () => {
-						const worker = getExtensionWorker();
+						const worker = findWorker();
 						if (!worker) return false;
 						try {
 							return (
@@ -188,6 +191,7 @@ async function createWorkerStopper(context, page, extensionId) {
 }
 
 module.exports = {
+	getExtensionWorker,
 	routeYoutubeFixture,
 	observeContentMessages,
 	createWorkerStopper,
