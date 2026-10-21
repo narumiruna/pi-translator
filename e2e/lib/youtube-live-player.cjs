@@ -15,8 +15,26 @@ async function runLiveYoutubePlayerSmoke({ context, config }) {
 		const control = player.locator("[data-ot-youtube-control]");
 		await page.bringToFront();
 		await player.waitFor({ state: "visible", timeout: 30000 });
-		await player.hover();
+		if (
+			await player.evaluate((element) =>
+				element.classList.contains("unstarted-mode"),
+			)
+		) {
+			await player.locator(".ytp-large-play-button").click({ timeout: 30000 });
+			await waitFor(
+				async () =>
+					!(await player.evaluate((element) =>
+						element.classList.contains("unstarted-mode"),
+					)),
+				{
+					timeoutMs: 30000,
+					timeoutMessage:
+						"The live YouTube player did not leave its initial play screen.",
+				},
+			);
+		}
 		await player.locator("video").evaluate((video) => video.pause());
+		await player.hover();
 		await control.waitFor({ timeout: 30000 });
 		assert.equal(await control.count(), 1);
 		assert.equal(await player.locator("video").count(), 1);
