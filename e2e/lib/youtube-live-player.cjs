@@ -13,6 +13,10 @@ async function runLiveYoutubePlayerSmoke({ context, config }) {
 		});
 		const player = page.locator("#movie_player");
 		const control = player.locator("[data-ot-youtube-control]");
+		await page.bringToFront();
+		await player.waitFor({ state: "visible", timeout: 30000 });
+		await player.hover();
+		await player.locator("video").evaluate((video) => video.pause());
 		await control.waitFor({ timeout: 30000 });
 		assert.equal(await control.count(), 1);
 		assert.equal(await player.locator("video").count(), 1);
@@ -64,6 +68,24 @@ async function runLiveYoutubePlayerSmoke({ context, config }) {
 			"Live YouTube DOM, packaged injection, player bounds, and real-click startup smoke passed (mock provider).",
 		);
 	} catch (error) {
+		await takeScreenshot(
+			page,
+			config.artifactsDir,
+			"youtube-live-player-failure.png",
+			false,
+		).catch(() => {});
+		console.error(
+			"Live YouTube player state:",
+			await page
+				.locator("#movie_player")
+				.evaluate((player) => ({
+					classes: player.className,
+					error:
+						player.querySelector(".ytp-error-content-wrap")?.textContent || "",
+					videoPaused: player.querySelector("video")?.paused,
+				}))
+				.catch(() => ({ playerMissing: true })),
+		);
 		error.message += `\nLive YouTube prerequisite: public watch page with a video player and captions control. URL: ${page.url()}`;
 		throw error;
 	} finally {
