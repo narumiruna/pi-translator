@@ -1,3 +1,4 @@
+import { waitForAbortable } from "../shared/abort.js";
 import * as CacheApi from "./cache.js";
 import * as ChunkPlan from "./chunk-plan.js";
 import * as ProtectedFragments from "./protected-fragments.js";
@@ -68,6 +69,8 @@ async function runBoundedScheduler(options) {
 }
 
 async function requestTranslations(options) {
+	const signal = options.signal;
+	signal?.throwIfAborted();
 	const settings = options.settings;
 	const items = options.items || [];
 	const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -89,18 +92,30 @@ async function requestTranslations(options) {
 		throw new Error("Fetch is not available.");
 	}
 
+	const requestFetch = signal
+		? (url, init) => fetchImpl(url, { ...init, signal })
+		: fetchImpl;
+	const complete = () => {
+		signal?.throwIfAborted();
+		return waitForAbortable(
+			completeImpl(settings, missingItems, requestFetch, { signal }),
+			signal,
+		);
+	};
 	let freshTranslations;
 
 	try {
-		freshTranslations = await completeImpl(settings, missingItems, fetchImpl);
+		freshTranslations = await complete();
 	} catch (error) {
+		signal?.throwIfAborted();
 		if (error instanceof InvalidTranslationResponseError) {
-			freshTranslations = await completeImpl(settings, missingItems, fetchImpl);
+			freshTranslations = await complete();
 		} else {
 			throw error;
 		}
 	}
 
+	signal?.throwIfAborted();
 	if (!options.bypassCache) {
 		translationCache.cacheTranslations(
 			settings,
@@ -116,6 +131,8 @@ async function requestTranslations(options) {
 }
 
 async function requestTranslationsBatched(options) {
+	const signal = options.signal;
+	signal?.throwIfAborted();
 	const settings = options.settings;
 	const chunks = options.chunks || [];
 	const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -124,20 +141,25 @@ async function requestTranslationsBatched(options) {
 	await runBoundedScheduler({
 		taskCount: chunks.length,
 		concurrency: options.concurrency,
+		shouldContinue: () => !signal?.aborted,
 		async runTask(chunkIndex) {
 			results[chunkIndex] = await requestTranslations({
 				settings,
 				items: chunks[chunkIndex],
 				fetchImpl,
 				completeImpl: options.completeImpl,
+				signal,
 			});
 		},
 	});
 
+	signal?.throwIfAborted();
 	return results.flat();
 }
 
 async function requestTranslationsBatchedProgressive(options) {
+	const signal = options.signal;
+	signal?.throwIfAborted();
 	const settings = options.settings;
 	const chunks = options.chunks || [];
 	const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -159,7 +181,7 @@ async function requestTranslationsBatchedProgressive(options) {
 	await runBoundedScheduler({
 		taskCount: chunks.length,
 		concurrency: options.concurrency,
-		shouldContinue,
+		shouldContinue: () => !signal?.aborted && shouldContinue(),
 		async runTask(chunkIndex) {
 			const chunkItems = chunks[chunkIndex];
 
@@ -169,16 +191,21 @@ async function requestTranslationsBatchedProgressive(options) {
 					items: chunkItems,
 					fetchImpl,
 					completeImpl: options.completeImpl,
+					signal,
 				});
 
+				signal?.throwIfAborted();
 				successes[chunkIndex] = result;
 
 				if (onChunkResolved) {
-					await onChunkResolved({
-						chunkIndex,
-						chunkItems,
-						translations: result,
-					});
+					await waitForAbortable(
+						onChunkResolved({
+							chunkIndex,
+							chunkItems,
+							translations: result,
+						}),
+						signal,
+					);
 				}
 			} catch (error) {
 				const failure = {
@@ -189,13 +216,14 @@ async function requestTranslationsBatchedProgressive(options) {
 
 				failures.push(failure);
 
-				if (onChunkRejected) {
-					await onChunkRejected(failure);
+				if (onChunkRejected && !signal?.aborted) {
+					await waitForAbortable(onChunkRejected(failure), signal);
 				}
 			}
 		},
 	});
 
+	signal?.throwIfAborted();
 	return {
 		successes: successes.filter(Boolean).flat(),
 		failures,
@@ -206,17 +234,28 @@ async function completeTranslationsWithProviderRuntime(
 	providerRuntime,
 	settings,
 	items,
+	options = {},
 ) {
+	const signal = options.signal;
+	signal?.throwIfAborted();
 	const input = buildTranslationInput({
 		systemPromptTemplate: settings.systemPromptTemplate,
 		userPromptTemplate: settings.userPromptTemplate,
 		items,
 		targetLanguage: settings.targetLanguage,
 	});
-	const response = await providerRuntime.complete(settings, {
-		systemPrompt: input[0]?.content || "",
-		userPrompt: input[1]?.content || "",
-	});
+	const response = await waitForAbortable(
+		providerRuntime.complete(
+			settings,
+			{
+				systemPrompt: input[0]?.content || "",
+				userPrompt: input[1]?.content || "",
+			},
+			{ signal },
+		),
+		signal,
+	);
+	signal?.throwIfAborted();
 
 	try {
 		const translations = parseTranslationResponse({
@@ -231,12 +270,21 @@ async function completeTranslationsWithProviderRuntime(
 }
 
 function createTranslationApi(providerRuntime) {
-	const completeImpl = (settings, items) =>
-		completeTranslationsWithProviderRuntime(providerRuntime, settings, items);
-	async function withModelCacheIdentity(options) {
-		const modelCacheIdentity = await providerRuntime.getModelCacheIdentity(
-			options.settings,
+	const completeImpl = (settings, items, _fetchImpl, options) =>
+		completeTranslationsWithProviderRuntime(
+			providerRuntime,
+			settings,
+			items,
+			options,
 		);
+	async function withModelCacheIdentity(options) {
+		const signal = options.signal;
+		signal?.throwIfAborted();
+		const modelCacheIdentity = await waitForAbortable(
+			providerRuntime.getModelCacheIdentity(options.settings, { signal }),
+			signal,
+		);
+		signal?.throwIfAborted();
 		return {
 			...options,
 			completeImpl,

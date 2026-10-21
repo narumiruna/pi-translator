@@ -161,6 +161,49 @@
 27. Open a video where YouTube exposes a caption track but renders no native caption text, click the in-player icon, wait about five seconds, and confirm the icon and diagnostic panel report that captions are not visible instead of staying falsely active
 28. Clear required API settings, click the in-player icon, and confirm the icon visibly enters a non-recoverable error state, the diagnostic panel shows the failure, and Settings opens instead of appearing inert
 
+### Long-playback recovery
+
+Use the built extension and a mock provider for automated failure tests:
+
+```sh
+npm run check
+npm run e2e:youtube
+```
+
+The suite first checks player control placement, content injection, and startup on an unmodified public YouTube page. Detailed recovery cases use synthetic video IDs on the existing YouTube origin, the packaged content script and background worker, and a local mock API. The real-page smoke requires network access to YouTube. No live translation API calls are required. It stops the actual worker with CDP `ServiceWorker.stopWorker`, checks stopped/running events, and verifies that a worker-global probe disappears after restart. Worker target IDs can remain unchanged.
+
+For a production-browser check:
+
+1. Start subtitle translation. Keep the worker inspector closed during normal playback.
+2. Stop the extension worker, then continue playback or resume after a pause longer than 30 seconds. Confirm that diagnostics show `session-lost`, one coordinated recovery, and `recovery-success` without another click.
+3. Repeat when timed captions are unavailable. Confirm that visible-caption translation resumes and playback status checks continue.
+4. Use the mock server to send SSE headers without completing the response. Confirm that the subtitle batch stops after 30 seconds, the connection closes, and a later caption can translate. Repeat with five concurrent stalled batches; the limit must remain five.
+5. Reject a visible-caption request twice. Confirm that the same snapshot gets only one automatic retry, the native caption stays readable, and the control shows an actionable error. Change the caption and confirm that a transient error does not block the new snapshot. Configuration or permission errors must not retry automatically.
+6. Replace the video node without changing the video ID. Confirm that progress, seek, and rate updates come from the replacement, with no duplicate listeners on the old node.
+7. Seek during recovery, then navigate to a different video before a delayed recovery completes. Confirm that old startup, result, failure, and diagnostic messages cannot change the new video.
+8. Test both subtitle display modes. Confirm that untranslated native segments remain readable and that completed offscreen translations can still enter the cache.
+9. Seek through cues beyond 10 and 20 minutes. This tests timeline handling; it is not evidence of 20 minutes of continuous playback.
+10. Force recovery to fail three times. Confirm that attempts start at least ten seconds apart, automatic recovery stops after the third failure, and a player-control click can restart it. Successful startup alone must not reset the retry budget; successful translation delivery can reset it.
+11. Copy diagnostics after each injected fault. Confirm that the report identifies the failure stage without API keys, prompts, source captions, response bodies, or signed caption URLs.
+
+Navigation, content teardown, and terminal failure send cancellation scoped to the old session or startup request. A delayed cancellation must not abort a newer startup. Cancellation on a non-YouTube page must not affect its page translation session.
+
+Recovery and subtitle batch deadlines are internal constants. The background attempt has a 30-second deadline; content allows one additional second for delivery of its result. No new settings, permissions, persisted caption data, or background keep-alive loop are required.
+
+### Automated evidence (2026-10-21)
+
+- Formatting, lint, module checks, 459 unit tests, production build, and artifact verification passed. The bundle still reports performance-budget and PDF `tabs` compatibility warnings; no permissions were added to suppress them.
+- Packaged tests cover four actual worker stops, 31-second pauses, five real stalled SSE connections, the 30-second deadline, healthy SPA request cancellation, stale-message rejection, video replacement, both display modes, and cues at 600,000 and 1,200,000 ms.
+- Mock page, selection, iframe, reinjection, partial-failure, appearance, PDF, desktop/mobile layout, and fixed-height placement browser regressions passed. The Chrome ZIP was built and verified locally; no package or release was published.
+- CI runs the YouTube suite and uploads screenshots in the `vibe-translator-chrome` artifact under `e2e-artifacts/`. Rendering evidence includes `youtube-live-player.png`, `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. Screenshots are not committed.
+
+### Remaining live checks
+
+These checks are separate from automated-plan completion:
+
+- **Incident diagnosis — affected user:** With the failing video and installed extension, copy diagnostics when translation stops. Record playback time, any pause or ad transition, and whether native captions still update. Expected result: identify the failure stage without sharing credentials. The cause of the original incident is still unconfirmed; synthetic recovery tests alone do not establish that it is resolved.
+- **Live-provider soak — account owner or authorized tester:** With a configured provider and approval for API usage, play a captioned video for at least 20 real-time minutes. Include pause/resume and an ad transition when available. Capture sanitized diagnostics. Expected result: continued translation or a bounded, actionable error. Live provider delays, account limits, and YouTube runtime changes remain unverified until this check is recorded. Do not claim live-provider long-playback validation before then.
+
 ## Selection translation
 
 1. Select a sentence on any supported page

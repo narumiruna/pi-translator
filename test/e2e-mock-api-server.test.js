@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
@@ -161,6 +161,65 @@ test("mock API server can fail the next response deterministically", async () =>
 	} finally {
 		await server.close();
 	}
+});
+
+test("mock API stalls after headers until the client aborts the real connection", async () => {
+	const server = await createMockApiServer();
+	const controller = new AbortController();
+	try {
+		server.stallNextResponses();
+		const response = await fetch(`${server.baseUrl}/responses`, {
+			method: "POST",
+			body: JSON.stringify({ stream: true }),
+			signal: controller.signal,
+		});
+		assert.equal(response.status, 200);
+		assert.match(response.headers.get("content-type"), /text\/event-stream/);
+		assert.equal(server.getActiveResponseCount(), 1);
+		const body = response.text();
+		controller.abort();
+		await assert.rejects(body, /abort/i);
+		await vi.waitFor(() => assert.equal(server.getAbortedResponseCount(), 1));
+		assert.equal(server.getActiveResponseCount(), 0);
+		assert.equal(server.getRequests()[0].aborted, true);
+		const next = await fetch(`${server.baseUrl}/responses`, { method: "POST" });
+		assert.equal(next.status, 200);
+		await next.text();
+	} finally {
+		controller.abort();
+		await server.close();
+	}
+});
+
+test("mock API reserves one-shot delays and failures in request order", async () => {
+	const server = await createMockApiServer();
+	try {
+		server.delayNextResponses(100);
+		server.failNextResponses();
+		const first = fetch(`${server.baseUrl}/responses`, { method: "POST" });
+		await vi.waitFor(() => assert.equal(server.getResponseRequestCount(), 1));
+		const second = await fetch(`${server.baseUrl}/responses`, {
+			method: "POST",
+		});
+		assert.equal(second.status, 200);
+		await second.text();
+		assert.equal((await first).status, 500);
+		assert.equal(server.getMaxActiveResponseCount(), 2);
+	} finally {
+		await server.close();
+	}
+});
+
+test("mock API closes stalled connections without waiting for a client abort", async () => {
+	const server = await createMockApiServer();
+	server.stallNextResponses();
+	const response = await fetch(`${server.baseUrl}/responses`, {
+		method: "POST",
+	});
+	const body = response.text();
+	const rejected = assert.rejects(body);
+	await server.close();
+	await rejected;
 });
 
 test("mock API server can fail matching response requests", async () => {

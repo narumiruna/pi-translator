@@ -1,3 +1,4 @@
+import { waitForAbortable } from "../shared/abort.js";
 import { translateItemsProgressively } from "../translation/progressive.js";
 import { getSelectionAnchor } from "./selection-anchor.js";
 import { createYoutubeCaptionPrefetch } from "./youtube-caption-prefetch.js";
@@ -8,9 +9,28 @@ import {
 
 const PAGE_TRANSLATION_CONCURRENCY = 5;
 const PAGE_TRANSLATION_BATCH_SIZE = 8;
+const SUBTITLE_DEADLINE_MS = 30_000;
 
 function getPageTranslationQueueBatchSize(item) {
 	return item?.kind === "subtitle" ? PAGE_TRANSLATION_BATCH_SIZE : 1;
+}
+
+function isSubtitleConfigurationError(error) {
+	if (error?.retryable === false) return true;
+	const status = Number(
+		error?.status ?? error?.statusCode ?? error?.response?.status,
+	);
+	if ([400, 401, 403, 404, 405, 422].includes(status)) return true;
+	const identity = [error?.name, error?.code, error?.type].join(" ");
+	if (
+		/Authentication|Permission|Configuration|Credential|ApiKey|NotFound|invalid_api_key|invalid_request|invalid_grant|model_not_found|authentication_error|permission_denied|unauthenticated|unauthorized|forbidden/iu.test(
+			identity,
+		)
+	)
+		return true;
+	return /(?:api[ -]?key|credential|access token).*(?:missing|invalid|expired|required)|(?:missing|invalid|expired|required).*(?:api[ -]?key|credential|access token)|not configured|no (?:api[ -]?key|credential)|configure (?:this|the|your) provider|selected model is unavailable|provider is unavailable|no browser endpoint|permission.*(?:denied|required)|unauthorized|forbidden|invalid_api_key|invalid_request_error|invalid_grant|model_not_found|authentication_error|permission_denied|unauthenticated|(?:HTTP|status|API error)\s*\(?(?:400|401|403|404|405|422)\b/iu.test(
+		String(error?.message || ""),
+	);
 }
 
 export function createBackgroundController(options = {}) {
@@ -46,6 +66,7 @@ export function createBackgroundController(options = {}) {
 		setBadge,
 		setupContextMenus,
 	} = platform;
+	const youtubeStartups = new Map();
 	let selectionRequestSequence = 0;
 	function createSelectionRequestId() {
 		selectionRequestSequence += 1;
@@ -79,6 +100,7 @@ export function createBackgroundController(options = {}) {
 				context.frameId || 0,
 				stage,
 				detail,
+				context.sessionId,
 			)?.catch?.(() => {});
 		},
 	});
@@ -93,6 +115,84 @@ export function createBackgroundController(options = {}) {
 		sessionId,
 		items,
 	) {
+		const session = getPageTranslationSession(tabId, sessionId, frameId);
+		if (!session || !items?.some((item) => item.kind === "subtitle")) {
+			return runPageTranslationItemBatch(tabId, frameId, sessionId, items);
+		}
+		const controller = new AbortController();
+		const cancel = () => controller.abort(new Error("cancelled"));
+		if (session.signal?.aborted) cancel();
+		session.signal?.addEventListener("abort", cancel, { once: true });
+		const timer = setTimeout(
+			() => controller.abort(new Error("request-timeout")),
+			SUBTITLE_DEADLINE_MS,
+		);
+		const control = { signal: controller.signal, reason: "setup-error" };
+		try {
+			await waitForAbortable(
+				runPageTranslationItemBatch(tabId, frameId, sessionId, items, control),
+				controller.signal,
+			);
+		} catch (error) {
+			const reason = controller.signal.aborted
+				? controller.signal.reason?.message === "request-timeout"
+					? "request-timeout"
+					: "cancelled"
+				: control.reason;
+			// Send settlement without waiting: a closed or stalled content endpoint must not hold a worker.
+			if (getPageTranslationSession(tabId, sessionId, frameId)) {
+				const ids = items
+					.filter((item) => !session.translatedIds.has(item.id))
+					.map((item) => item.id);
+				Promise.resolve(
+					clearPagePlaceholders(
+						tabId,
+						ids,
+						frameId,
+						{
+							reason,
+							retryable:
+								control.retryable !== false &&
+								(reason === "request-timeout" || reason === "api-error"),
+						},
+						sessionId,
+					),
+				).catch(() => {});
+				Promise.resolve(
+					sendYoutubeDiagnosticEvent(
+						tabId,
+						frameId,
+						reason,
+						"failure-count=1; Caption translation did not complete",
+						sessionId,
+					),
+				).catch(() => {});
+			}
+			if (!controller.signal.aborted)
+				logger?.error("subtitle-batch-failed", {
+					error: error?.message,
+					sessionId,
+				});
+		} finally {
+			control.finished = true;
+			clearTimeout(timer);
+			session.signal?.removeEventListener("abort", cancel);
+		}
+	}
+
+	async function runPageTranslationItemBatch(
+		tabId,
+		frameId,
+		sessionId,
+		items,
+		control,
+	) {
+		const signal = control?.signal;
+		const isCurrent = () =>
+			!control?.finished &&
+			!signal?.aborted &&
+			Boolean(getPageTranslationSession(tabId, sessionId, frameId));
+		signal?.throwIfAborted();
 		logger?.debug("page-batch-start", {
 			frameId,
 			itemCount: items?.length || 0,
@@ -120,7 +220,9 @@ export function createBackgroundController(options = {}) {
 					frameId,
 					"api-start",
 					`Requesting ${subtitleItems.length} caption translation(s)`,
+					sessionId,
 				);
+				signal?.throwIfAborted();
 			}
 
 			const placeholderIds = batchItems
@@ -144,8 +246,8 @@ export function createBackgroundController(options = {}) {
 				settings: session.settings,
 				items: batchItems,
 				maximumConcurrency: 1,
-				isCurrent: () =>
-					Boolean(getPageTranslationSession(tabId, sessionId, frameId)),
+				signal,
+				isCurrent,
 				onTranslations: async (completedTranslations) => {
 					const currentSession = getPageTranslationSession(
 						tabId,
@@ -153,10 +255,11 @@ export function createBackgroundController(options = {}) {
 						frameId,
 					);
 
-					if (!currentSession) {
+					if (!currentSession || !isCurrent()) {
 						return;
 					}
 
+					if (control) control.reason = "api-error";
 					if (
 						completedTranslations.some(
 							(translation) => translation.kind === "subtitle",
@@ -167,23 +270,39 @@ export function createBackgroundController(options = {}) {
 							frameId,
 							"api-success",
 							`API returned ${completedTranslations.length} completed translation(s)`,
+							sessionId,
 						);
+						signal?.throwIfAborted();
 					}
 
-					pageTranslationQueue.markTranslated(
-						tabId,
-						sessionId,
-						completedTranslations.map((translation) => translation.id),
-						frameId,
-					);
+					if (!control)
+						pageTranslationQueue.markTranslated(
+							tabId,
+							sessionId,
+							completedTranslations.map((translation) => translation.id),
+							frameId,
+						);
 
-					await renderPageTranslationUpdates(
+					const acknowledgement = await renderPageTranslationUpdates(
 						tabId,
 						currentSession.settings.targetLanguage,
 						completedTranslations,
 						currentSession.settings,
 						frameId,
+						control ? sessionId : undefined,
 					);
+					signal?.throwIfAborted();
+					if (!isCurrent()) return;
+					if (control) {
+						if (!acknowledgement || acknowledgement.ok === false)
+							throw new Error("Caption delivery was not acknowledged");
+						pageTranslationQueue.markTranslated(
+							tabId,
+							sessionId,
+							completedTranslations.map((translation) => translation.id),
+							frameId,
+						);
+					}
 					setBadge(
 						tabId,
 						String(pageTranslationQueue.getTranslatedCount(tabId)),
@@ -191,14 +310,35 @@ export function createBackgroundController(options = {}) {
 				},
 			});
 
-			if (progressiveResult.stale) {
+			signal?.throwIfAborted();
+			if (progressiveResult.stale || !isCurrent()) {
 				return;
 			}
 
 			const { incompleteSegmentIds } = progressiveResult;
+			const configurationFailure =
+				control &&
+				progressiveResult.failures.some((failure) =>
+					isSubtitleConfigurationError(failure.error),
+				);
+			const failureDetails = {
+				reason: configurationFailure ? "setup-error" : "api-error",
+				retryable: !configurationFailure,
+			};
+			if (control) {
+				control.reason = failureDetails.reason;
+				control.retryable = failureDetails.retryable;
+			}
 
 			if (incompleteSegmentIds.length > 0) {
-				await clearPagePlaceholders(tabId, incompleteSegmentIds, frameId);
+				await clearPagePlaceholders(
+					tabId,
+					incompleteSegmentIds,
+					frameId,
+					control ? failureDetails : undefined,
+					control ? sessionId : undefined,
+				);
+				signal?.throwIfAborted();
 			}
 
 			if (progressiveResult.failures.length > 0) {
@@ -210,15 +350,18 @@ export function createBackgroundController(options = {}) {
 					await sendYoutubeDiagnosticEvent(
 						tabId,
 						frameId,
-						"api-error",
+						configurationFailure ? "setup-error" : "api-error",
 						"failure-count=1; Caption translation request failed",
+						sessionId,
 					);
+					signal?.throwIfAborted();
 				}
 
 				const failedCount =
 					incompleteSegmentIds.length || progressiveResult.failures.length;
 
 				setBadge(tabId, "!");
+				if (control) return;
 				await sendToast(
 					tabId,
 					`Failed to translate ${failedCount} page item${failedCount === 1 ? "" : "s"}. Successful translations were kept.`,
@@ -226,6 +369,7 @@ export function createBackgroundController(options = {}) {
 				);
 			}
 		} catch (error) {
+			if (control) throw error;
 			if (isTabMessageDisconnectError(error)) {
 				pageTranslationQueue.remove(tabId, frameId);
 				const translatedCount = pageTranslationQueue.getTranslatedCount(tabId);
@@ -254,12 +398,27 @@ export function createBackgroundController(options = {}) {
 		);
 	}
 
-	async function startPageTranslationFrame(tabId, frameId, settings) {
+	async function startPageTranslationFrame(
+		tabId,
+		frameId,
+		settings,
+		internal = {},
+	) {
 		await ensureContentScript(tabId, frameId);
+		internal.signal?.throwIfAborted();
+		await internal.validate?.();
+		internal.signal?.throwIfAborted();
 		const session = pageTranslationQueue.create(tabId, settings, frameId);
+		internal.onSession?.(session);
 		const extraction = await chrome.tabs.sendMessage(
 			tabId,
 			Messages.startPageTranslationSession({
+				...(internal.youtubeVideoKey
+					? {
+							youtubeVideoKey: internal.youtubeVideoKey,
+							youtubeRequestId: internal.youtubeRequestId,
+						}
+					: {}),
 				sessionId: session.sessionId,
 				targetLanguage: settings.targetLanguage,
 				...buildTranslationAppearancePayload(settings),
@@ -269,7 +428,14 @@ export function createBackgroundController(options = {}) {
 			getFrameMessageOptions(frameId),
 		);
 
-		if (!extraction || !Array.isArray(extraction.items)) {
+		internal.signal?.throwIfAborted();
+		if (!getPageTranslationSession(tabId, session.sessionId, frameId))
+			throw new Error("cancelled");
+		if (
+			!extraction ||
+			extraction.ok === false ||
+			!Array.isArray(extraction.items)
+		) {
 			pageTranslationQueue.remove(tabId, frameId);
 			return { items: [], totalSegments: 0 };
 		}
@@ -290,7 +456,11 @@ export function createBackgroundController(options = {}) {
 		return { ...extraction, sessionId: session.sessionId };
 	}
 
-	function removePageTranslationState(tabId, frameId) {
+	function removePageTranslationState(tabId, frameId, preserveStartup = false) {
+		if (!preserveStartup && (!Number.isInteger(frameId) || frameId === 0)) {
+			youtubeStartups.get(tabId)?.abort(new Error("cancelled"));
+			youtubeStartups.delete(tabId);
+		}
 		pageTranslationQueue.remove(tabId, frameId);
 
 		if (!Number.isInteger(frameId) || frameId === 0) {
@@ -298,19 +468,27 @@ export function createBackgroundController(options = {}) {
 		}
 	}
 
-	async function translatePage(tab) {
+	async function translatePage(tab, internal = {}) {
+		const check = () => internal.signal?.throwIfAborted();
+		check();
 		logger?.info("page-translation-start", { tabId: tab?.id });
 		if (!tab?.id || !isSupportedPage(tab.url)) {
 			throw new Error("This page cannot be translated.");
 		}
 
-		const settings = await loadSettingsOrOpenOptions();
+		const settings = await loadSettingsOrOpenOptions({
+			interactive: internal.interactive !== false,
+		});
+		check();
 
 		if (isDomainDisabled(tab.url, settings)) {
 			throw new Error("Translation is disabled for this domain.");
 		}
 
-		const hasPermission = await ensureApiPermission(settings);
+		const hasPermission = await ensureApiPermission(settings, {
+			interactive: internal.interactive !== false,
+		});
+		check();
 
 		if (!hasPermission) {
 			throw new Error(
@@ -318,8 +496,11 @@ export function createBackgroundController(options = {}) {
 			);
 		}
 
-		removePageTranslationState(tab.id);
+		await internal.validate?.();
+		check();
+		removePageTranslationState(tab.id, undefined, Boolean(internal.signal));
 		const embeddedFrames = await discoverEmbeddedPageFrames(tab.id, tab.url);
+		check();
 		const frames = [{ frameId: 0, url: tab.url }, ...embeddedFrames];
 		let queuedCount = 0;
 		let totalSegments = 0;
@@ -332,7 +513,9 @@ export function createBackgroundController(options = {}) {
 					tab.id,
 					frame.frameId,
 					settings,
+					internal,
 				);
+				check();
 
 				queuedCount += extraction.items.length;
 				totalSegments += Number(extraction.totalSegments) || 0;
@@ -341,7 +524,12 @@ export function createBackgroundController(options = {}) {
 					mainSessionId = extraction.sessionId || "";
 				}
 			} catch (error) {
-				removePageTranslationState(tab.id, frame.frameId);
+				check();
+				removePageTranslationState(
+					tab.id,
+					frame.frameId,
+					Boolean(internal.signal),
+				);
 
 				if (frame.frameId === 0) {
 					throw error;
@@ -502,38 +690,100 @@ export function createBackgroundController(options = {}) {
 		}
 	}
 
-	async function startYoutubeSubtitleTranslation(sender) {
+	function youtubeVideoKey(url) {
+		try {
+			const parsed = new URL(url);
+			if (SiteProfiles.resolveSiteProfile(parsed.hostname).id !== "youtube")
+				return "";
+			return parsed.pathname === "/watch"
+				? parsed.searchParams.get("v") || ""
+				: /^\/shorts\/([^/]+)/u.exec(parsed.pathname)?.[1] || "";
+		} catch {
+			return "";
+		}
+	}
+
+	async function startYoutubeSubtitleTranslation(sender, payload = {}) {
 		if (!sender?.tab?.id || (sender.frameId ?? 0) !== 0) {
 			throw new Error(
 				"YouTube subtitle translation requires the main video page.",
 			);
 		}
-
-		const tab = await chrome.tabs.get(sender.tab.id);
-
-		const profileId = tab?.url
-			? SiteProfiles.resolveSiteProfile(new URL(tab.url).hostname).id
-			: "default";
-
-		if (profileId !== "youtube") {
-			throw new Error("This control is only available on YouTube videos.");
-		}
-
-		const captions = await enableYoutubeCaptions(chrome, tab.id).catch(() => ({
-			enabled: false,
-			hasTrack: false,
-		}));
-
-		try {
-			const translation = await translatePage(tab);
+		const tabId = sender.tab.id;
+		youtubeStartups.get(tabId)?.abort(new Error("cancelled"));
+		const controller = new AbortController();
+		const { signal } = controller;
+		controller.youtubeRequestId = payload.requestId;
+		controller.youtubeVideoKey = payload.videoKey;
+		youtubeStartups.set(tabId, controller);
+		const timer = setTimeout(
+			() => controller.abort(new Error("request-timeout")),
+			SUBTITLE_DEADLINE_MS,
+		);
+		let translation;
+		let createdSessionId;
+		let captions = { enabled: false, hasTrack: false };
+		const unavailable = {
+			available: false,
+			cueCount: 0,
+			queued: 0,
+			sessionStatus: "active",
+		};
+		let videoKey = payload.videoKey;
+		const validate = async () => {
+			signal.throwIfAborted();
+			const tab = await chrome.tabs.get(tabId);
+			signal.throwIfAborted();
+			const currentKey = youtubeVideoKey(tab?.url);
+			if (!currentKey || (videoKey && currentKey !== videoKey))
+				throw new Error(
+					"The YouTube video changed. Start translation for the current video.",
+				);
+			videoKey = currentKey;
+			controller.youtubeVideoKey = currentKey;
+			return tab;
+		};
+		const operation = async () => {
+			const tab = await validate();
+			translation = await translatePage(tab, {
+				signal,
+				validate,
+				interactive: payload.recovery !== true,
+				onSession: (session) => {
+					if (session.frameId === 0) {
+						createdSessionId = session.sessionId;
+						controller.youtubeSessionId = session.sessionId;
+					}
+				},
+				youtubeVideoKey: videoKey,
+				youtubeRequestId: payload.requestId,
+			});
+			signal.throwIfAborted();
+			if (
+				!translation?.sessionId ||
+				!getPageTranslationSession(tabId, translation.sessionId, 0)
+			)
+				throw new Error("The subtitle session was not accepted.");
+			captions = await enableYoutubeCaptions(chrome, tabId, { signal }).catch(
+				() => {
+					signal.throwIfAborted();
+					return { enabled: false, hasTrack: false };
+				},
+			);
+			await validate();
 			const advertisedTrackUrl = captions.trackBaseUrl;
 			const nativeTrackUrl = advertisedTrackUrl
 				? await captureNativeYoutubeCaptionRequestUrl(
 						chrome,
-						tab.id,
+						tabId,
 						advertisedTrackUrl,
-					).catch(() => "")
+						{ signal },
+					).catch(() => {
+						signal.throwIfAborted();
+						return "";
+					})
 				: "";
+			signal.throwIfAborted();
 			const initializePrefetch = (baseUrl) =>
 				youtubeCaptionPrefetch.initialize({
 					baseUrl,
@@ -541,29 +791,79 @@ export function createBackgroundController(options = {}) {
 					frameId: 0,
 					playbackRate: captions.playbackRate,
 					reason: "startup",
-					sessionId: translation?.sessionId,
-					tabId: tab.id,
+					signal,
+					sessionId: translation.sessionId,
+					tabId,
 				});
 			let prefetch = nativeTrackUrl
 				? await initializePrefetch(nativeTrackUrl)
-				: { available: false, cueCount: 0, queued: 0 };
-
-			if (prefetch.available) {
-				captions.trackSource = "native-request";
-			} else if (advertisedTrackUrl && nativeTrackUrl !== advertisedTrackUrl) {
+				: unavailable;
+			signal.throwIfAborted();
+			if (prefetch.available) captions.trackSource = "native-request";
+			else if (advertisedTrackUrl && nativeTrackUrl !== advertisedTrackUrl)
 				prefetch = await initializePrefetch(advertisedTrackUrl);
-			}
+			await validate();
 			const { trackBaseUrl: _trackBaseUrl, ...captionStatus } = captions;
-
-			return { ok: true, captions: captionStatus, prefetch };
+			return {
+				ok: true,
+				sessionId: translation.sessionId,
+				captions: captionStatus,
+				prefetch,
+			};
+		};
+		try {
+			return await waitForAbortable(operation(), signal);
 		} catch (error) {
+			if (
+				signal.aborted &&
+				signal.reason?.message === "request-timeout" &&
+				translation?.sessionId &&
+				getPageTranslationSession(tabId, translation.sessionId, 0)
+			) {
+				Promise.resolve(
+					sendYoutubeDiagnosticEvent(
+						tabId,
+						0,
+						"prefetch-fallback",
+						"Timed caption acquisition timed out; using visible captions",
+						translation.sessionId,
+					),
+				).catch(() => {});
+				const { trackBaseUrl: _trackBaseUrl, ...captionStatus } = captions;
+				return {
+					ok: true,
+					sessionId: translation.sessionId,
+					captions: captionStatus,
+					prefetch: unavailable,
+				};
+			}
+			if (
+				createdSessionId &&
+				getPageTranslationSession(tabId, createdSessionId, 0)
+			)
+				removePageTranslationState(tabId, 0, true);
+			const reason = signal.aborted
+				? signal.reason?.message === "request-timeout"
+					? "request-timeout"
+					: "cancelled"
+				: "setup-error";
+			const configurationError =
+				/Settings are incomplete|Permission to access|Translation is disabled|video changed|cannot be translated|session was not accepted/u.test(
+					String(error.message || ""),
+				);
 			return {
 				ok: false,
 				error: error.message,
-				openOptions: String(error.message || "").includes(
-					"Settings are incomplete",
-				),
+				reason,
+				retryable: reason !== "cancelled" && !configurationError,
+				openOptions:
+					payload.recovery !== true &&
+					String(error.message || "").includes("Settings are incomplete"),
 			};
+		} finally {
+			clearTimeout(timer);
+			if (youtubeStartups.get(tabId) === controller)
+				youtubeStartups.delete(tabId);
 		}
 	}
 
@@ -716,23 +1016,71 @@ export function createBackgroundController(options = {}) {
 		if (
 			message.type === Messages.MESSAGE_TYPES.START_YOUTUBE_SUBTITLE_TRANSLATION
 		) {
-			return startYoutubeSubtitleTranslation(sender);
+			return startYoutubeSubtitleTranslation(sender, message.payload);
+		}
+
+		if (
+			message.type ===
+			Messages.MESSAGE_TYPES.CANCEL_YOUTUBE_SUBTITLE_TRANSLATION
+		) {
+			const tabId = sender.tab?.id;
+			if (!tabId || (sender.frameId ?? 0) !== 0) return { ok: false };
+			const payload = message.payload || {};
+			const session = getPageTranslationSession(tabId, undefined, 0);
+			const startup = youtubeStartups.get(tabId);
+			const matchesSession =
+				payload.sessionId && session?.sessionId === payload.sessionId;
+			const matchesStartup =
+				payload.requestId &&
+				startup?.youtubeRequestId === payload.requestId &&
+				startup?.youtubeVideoKey === payload.videoKey;
+			if (
+				matchesStartup ||
+				(matchesSession && startup?.youtubeSessionId === payload.sessionId)
+			)
+				removePageTranslationState(tabId);
+			else if (matchesSession) removePageTranslationState(tabId, 0, true);
+			return { ok: true, cancelled: Boolean(matchesSession || matchesStartup) };
 		}
 
 		if (message.type === Messages.MESSAGE_TYPES.PREFETCH_YOUTUBE_SUBTITLES) {
 			if (!sender.tab?.id || (sender.frameId ?? 0) !== 0) {
-				return { available: false, queued: 0 };
+				return { available: false, queued: 0, sessionStatus: "missing" };
 			}
 
 			const session = getPageTranslationSession(sender.tab.id, undefined, 0);
+			const requestedSessionId = message.payload?.sessionId;
+			if (
+				!session ||
+				(requestedSessionId && requestedSessionId !== session.sessionId)
+			) {
+				return {
+					available: false,
+					queued: 0,
+					sessionStatus: session ? "stale" : "missing",
+				};
+			}
 
-			return youtubeCaptionPrefetch.update({
+			const prefetch = await youtubeCaptionPrefetch.update({
 				currentTimeMs: message.payload?.currentTimeMs,
 				playbackRate: message.payload?.playbackRate,
 				reason: message.payload?.reason,
 				sessionId: session?.sessionId,
 				tabId: sender.tab.id,
 			});
+			const currentSession = getPageTranslationSession(
+				sender.tab.id,
+				undefined,
+				0,
+			);
+			const sessionStatus = !currentSession
+				? "missing"
+				: currentSession !== session
+					? "stale"
+					: "active";
+			return sessionStatus === "active"
+				? { ...prefetch, sessionStatus }
+				: { available: false, queued: 0, sessionStatus };
 		}
 
 		if (message.type === Messages.MESSAGE_TYPES.RETRY_SELECTION_TRANSLATION) {
@@ -775,7 +1123,7 @@ export function createBackgroundController(options = {}) {
 			const frameId = Number.isInteger(sender?.frameId) ? sender.frameId : 0;
 
 			if (!tabId) {
-				return { ok: false, queued: 0 };
+				return { ok: false, queued: 0, sessionStatus: "missing" };
 			}
 
 			const result = await queuePageTranslationItems(

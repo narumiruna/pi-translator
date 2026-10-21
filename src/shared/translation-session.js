@@ -45,7 +45,11 @@ function createPageTranslationQueue(options = {}) {
 	}
 
 	function create(tabId, settings, frameId = 0) {
+		remove(tabId, frameId);
+		const abortController = new AbortController();
 		const session = {
+			abortController,
+			signal: abortController.signal,
 			tabId,
 			frameId,
 			sessionId: createSessionId(),
@@ -85,12 +89,14 @@ function createPageTranslationQueue(options = {}) {
 
 	function remove(tabId, frameId) {
 		if (Number.isInteger(frameId) && frameId >= 0) {
+			sessions.get(getSessionKey(tabId, frameId))?.abortController.abort();
 			sessions.delete(getSessionKey(tabId, frameId));
 			return;
 		}
 
 		for (const [key, session] of sessions) {
 			if (session.tabId === tabId) {
+				session.abortController.abort();
 				sessions.delete(key);
 			}
 		}
@@ -213,7 +219,8 @@ function createPageTranslationQueue(options = {}) {
 		const session = get(tabId, sessionId, frameId);
 
 		if (!session) {
-			return { queued: 0 };
+			const current = get(tabId, undefined, frameId);
+			return { queued: 0, sessionStatus: current ? "stale" : "missing" };
 		}
 
 		const placeAtBack = enqueueOptions?.placement === "back";
@@ -263,7 +270,7 @@ function createPageTranslationQueue(options = {}) {
 			continueProcessing(tabId, session.sessionId, session.frameId);
 		}
 
-		return { queued: queuedItems.length };
+		return { queued: queuedItems.length, sessionStatus: "active" };
 	}
 
 	return {

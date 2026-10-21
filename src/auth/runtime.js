@@ -3,6 +3,7 @@ import {
 	getSupportedThinkingLevels,
 } from "@earendil-works/pi-ai";
 
+import { waitForAbortable } from "../shared/abort.js";
 import {
 	BASIC_THINKING_LEVELS,
 	normalizeThinkingLevel,
@@ -268,8 +269,11 @@ class ProviderRuntime {
 		);
 	}
 
-	async getModel(settings) {
-		await this.initialize();
+	async getModel(settings, options = {}) {
+		const signal = options.signal;
+		signal?.throwIfAborted();
+		await waitForAbortable(this.initialize(), signal);
+		signal?.throwIfAborted();
 		this.configureCustom(settings);
 		const model = this.models.getModel(settings.provider, settings.model);
 		if (!model) {
@@ -280,9 +284,19 @@ class ProviderRuntime {
 		return model;
 	}
 
-	async assertConfigured(settings) {
-		const model = await this.getModel(settings);
-		const configured = await this.models.checkAuth(model.provider);
+	async assertConfigured(settings, options = {}) {
+		const signal = options.signal;
+		signal?.throwIfAborted();
+		const model = await waitForAbortable(
+			this.getModel(settings, options),
+			signal,
+		);
+		signal?.throwIfAborted();
+		const configured = await waitForAbortable(
+			this.models.checkAuth(model.provider, { signal }),
+			signal,
+		);
+		signal?.throwIfAborted();
 		if (!configured) {
 			throw new Error(
 				"The selected provider is not configured. Open Settings and add a credential.",
@@ -307,27 +321,46 @@ class ProviderRuntime {
 		return [...new Set(urls.map(toPermissionPattern))];
 	}
 
-	async getModelCacheIdentity(settings) {
-		const model = await this.getModel(settings);
+	async getModelCacheIdentity(settings, options = {}) {
+		const signal = options.signal;
+		signal?.throwIfAborted();
+		const model = await waitForAbortable(
+			this.getModel(settings, options),
+			signal,
+		);
+		signal?.throwIfAborted();
 		const provider = this.models.getProvider(model.provider);
 		if (!provider) {
 			throw new Error(`Provider is unavailable: ${model.provider}.`);
 		}
-		const credential = await this.credentials.read(provider.id);
+		const credential = await waitForAbortable(
+			this.credentials.read(provider.id),
+			signal,
+		);
+		signal?.throwIfAborted();
 		const endpoints = [
 			...new Set(modelEndpointUrls(provider, model, credential)),
 		].sort();
 
-		return hashModelCacheIdentity({
-			configuration: normalizeProviderConfiguration(credential),
-			endpoints,
-			model: model.id,
-			provider: provider.id,
-		});
+		return waitForAbortable(
+			hashModelCacheIdentity({
+				configuration: normalizeProviderConfiguration(credential),
+				endpoints,
+				model: model.id,
+				provider: provider.id,
+			}),
+			signal,
+		);
 	}
 
 	async complete(settings, input, options = {}) {
-		const model = await this.assertConfigured(settings);
+		const signal = options.signal;
+		signal?.throwIfAborted();
+		const model = await waitForAbortable(
+			this.assertConfigured(settings, options),
+			signal,
+		);
+		signal?.throwIfAborted();
 		const context = {
 			systemPrompt: String(input?.systemPrompt || ""),
 			messages: [
@@ -345,12 +378,16 @@ class ProviderRuntime {
 			getSupportedThinkingLevels(model).includes(thinkingLevel)
 				? thinkingLevel
 				: undefined;
-		const response = await this.models.completeSimple(model, context, {
-			...(reasoning ? { reasoning } : {}),
-			...(this.fetch ? { fetch: this.fetch } : {}),
-			...(options.signal ? { signal: options.signal } : {}),
-			transport: "sse",
-		});
+		const response = await waitForAbortable(
+			this.models.completeSimple(model, context, {
+				...(reasoning ? { reasoning } : {}),
+				...(this.fetch ? { fetch: this.fetch } : {}),
+				...(options.signal ? { signal: options.signal } : {}),
+				transport: "sse",
+			}),
+			signal,
+		);
+		signal?.throwIfAborted();
 
 		if (response.stopReason === "error" || response.stopReason === "aborted") {
 			throw new Error(response.errorMessage || "The provider request failed.");

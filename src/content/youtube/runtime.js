@@ -1,7 +1,9 @@
 import { createCaptionFallbackStore } from "./caption-fallback.js";
+import { createSubtitleRecovery } from "./recovery.js";
 
 export function createYoutubeRuntime(options = {}) {
 	const {
+		activeSiteProfile,
 		document,
 		window,
 		chrome,
@@ -17,6 +19,44 @@ export function createYoutubeRuntime(options = {}) {
 		scheduleVisibleTranslation,
 	} = options;
 	const captionFallbackStore = createCaptionFallbackStore();
+	let disposed = false;
+	let fallbackRetryTimer = null;
+	const recovery = createSubtitleRecovery({
+		window,
+		getVideoKey: getYoutubeVideoKey,
+		isActive: () => !disposed && Boolean(pageState.pageTranslation.active),
+		sendStart: (payload) =>
+			chrome.runtime.sendMessage(
+				Messages.startYoutubeSubtitleTranslation(payload),
+			),
+		onAttempt(attempt) {
+			recordYoutubeDiagnostic(
+				"recovery-attempt",
+				`Restarting subtitle session; attempt=${attempt}`,
+			);
+		},
+		onStarted(response) {
+			if (!pageState.pageTranslation.active) return;
+			applyStartedSession(response);
+			recordYoutubeDiagnostic("recovery-success", "Subtitle session restored");
+			scheduleVisibleTranslation?.();
+		},
+		onFailure(_response, exhausted) {
+			if (!exhausted) return;
+			cancelYoutubeSession();
+			pageState.pageTranslation.active = false;
+			pageState.pageTranslation.sessionId = "";
+			clearYoutubePrefetchTracking();
+			resetYoutubeCaptionFallbacks();
+			resetCaptionPresentation();
+			showSubtitleFailure("Subtitle recovery failed. Click to try again");
+			recordYoutubeDiagnostic(
+				"recovery-error",
+				"Subtitle recovery stopped; click the player control to retry",
+				{ show: true },
+			);
+		},
+	});
 
 	pageState.youtubeDiagnostics.captionStatus ||= {
 		hasTrack: false,
@@ -35,6 +75,7 @@ export function createYoutubeRuntime(options = {}) {
 				extensionVersion: chrome.runtime.getManifest?.().version || "unknown",
 				location: window.location,
 			}),
+			recovery: recovery.getSummary(),
 			captionFallback: captionFallbackStore.getSummary(),
 			captionTrace: pageState.youtubeDiagnostics.captionTrace?.getSummary?.(),
 			failureCount: events.filter((event) => event.stage === "api-error")
@@ -156,6 +197,15 @@ export function createYoutubeRuntime(options = {}) {
 		pageState.youtubeDiagnostics.status = detail || stage;
 		pageState.youtubeDiagnostics.captionTrace?.addOutcomes?.(options.outcomes);
 
+		if (
+			pageState.pageTranslation.active &&
+			Number(options.outcomes?.delivered) > 0
+		) {
+			recovery.delivered();
+			if (pageState.youtubeControl.errorReason === "translation-failure") {
+				applyYoutubeControlState(pageState.youtubeControl.button, "active");
+			}
+		}
 		if (Number(options.outcomes?.rendered) > 0) {
 			recoverYoutubeCaptionTimeout();
 		}
@@ -340,6 +390,135 @@ export function createYoutubeRuntime(options = {}) {
 
 	function resetYoutubeCaptionFallbacks() {
 		captionFallbackStore.clear();
+		if (fallbackRetryTimer !== null) window.clearTimeout(fallbackRetryTimer);
+		fallbackRetryTimer = null;
+	}
+
+	function resetCaptionPresentation(ids) {
+		for (const source of document.querySelectorAll?.(
+			".ytp-caption-segment[data-ot-source-id]",
+		) || []) {
+			if (ids && !ids.has(source.getAttribute("data-ot-source-id"))) continue;
+			for (const attr of [
+				"data-ot-subtitle-replaced",
+				"data-ot-translated",
+				"data-translated",
+				"data-ot-queued",
+				"data-ot-source-stale",
+			])
+				source.removeAttribute(attr);
+		}
+		for (const note of document.querySelectorAll?.(
+			'[data-ot-role="note"][data-ot-presentation="subtitle"]',
+		) || []) {
+			if (!ids || ids.has(note.getAttribute("data-ot-note-id"))) note.remove();
+		}
+	}
+
+	function showSubtitleFailure(error) {
+		applyYoutubeControlPresentation(
+			pageState.youtubeControl.button,
+			SubtitleApi.resolvePlayerControlError({ error }),
+			{ errorReason: "translation-failure" },
+		);
+	}
+
+	function failYoutubeCaptionFallbacks(payload) {
+		const ids = new Set(payload.ids || []);
+		let retry = false;
+		let exhausted = false;
+		for (const id of ids) {
+			const result = captionFallbackStore.fail(id, {
+				retryable: payload.retryable === true,
+			});
+			retry ||= result.shouldRetry;
+			exhausted ||= result.retryExhausted;
+		}
+		resetCaptionPresentation(ids);
+		if (payload.retryable === false && payload.reason !== "cancelled") {
+			cancelYoutubeSession();
+			recovery.cancel();
+			pageState.pageTranslation.active = false;
+			pageState.pageTranslation.sessionId = "";
+			resetYoutubeCaptionFallbacks();
+			resetCaptionPresentation();
+			clearYoutubePrefetchTracking();
+		}
+		if (
+			["request-timeout", "setup-error", "api-error", "cancelled"].includes(
+				payload.reason,
+			)
+		) {
+			recordYoutubeDiagnostic(
+				payload.reason,
+				"Caption translation did not complete",
+			);
+		}
+		if (exhausted || payload.retryable === false)
+			showSubtitleFailure("Subtitle translation failed. Click to try again");
+		if (retry && fallbackRetryTimer === null) {
+			fallbackRetryTimer = window.setTimeout(() => {
+				fallbackRetryTimer = null;
+				scheduleVisibleTranslation?.();
+			}, 1000);
+		}
+	}
+
+	function handleYoutubeQueueResult(items, response, sessionId) {
+		if (
+			!isCurrentYoutubeVideo() ||
+			sessionId !== pageState.pageTranslation.sessionId
+		)
+			return;
+		if (["missing", "stale"].includes(response?.sessionStatus)) {
+			handleYoutubeSessionLoss();
+			return;
+		}
+		if (!response?.ok) {
+			failYoutubeCaptionFallbacks({
+				ids: items.map((item) => item.id),
+				retryable: true,
+				reason: "api-error",
+			});
+		}
+	}
+
+	function handleYoutubeSessionLoss() {
+		if (
+			disposed ||
+			!isCurrentYoutubeVideo() ||
+			!pageState.pageTranslation.active
+		)
+			return;
+		pageState.youtubeDiagnostics.captionStatus.prefetchAvailable = false;
+		if (!recovery.isRecovering()) {
+			pageState.pageTranslation.sessionId = "";
+			resetYoutubeCaptionFallbacks();
+			resetCaptionPresentation();
+			recordYoutubeDiagnostic(
+				"session-lost",
+				"Background subtitle session is unavailable",
+			);
+		}
+		recovery.recover();
+	}
+
+	function acceptsYoutubeSessionPayload(payload) {
+		return (
+			!disposed &&
+			getYoutubeVideoKey() === pageState.youtubeControl.videoKey &&
+			Boolean(payload?.sessionId) &&
+			payload.sessionId === pageState.pageTranslation.sessionId
+		);
+	}
+
+	function applyStartedSession(response) {
+		if (response.sessionId)
+			pageState.pageTranslation.sessionId = response.sessionId;
+		setYoutubeCaptionStatus(response.captions, response.prefetch);
+		applyYoutubeControlState(pageState.youtubeControl.button, "active");
+		bindYoutubePrefetchTracking();
+		reportYoutubePrefetchProgress("seek", true);
 	}
 
 	function setYoutubeCaptionStatus(captions = {}, prefetch = {}) {
@@ -384,8 +563,35 @@ export function createYoutubeRuntime(options = {}) {
 		});
 	}
 
+	function cancelYoutubeSession() {
+		if (!SubtitleApi?.isSubtitleProfile(activeSiteProfile)) return;
+		const identity = recovery.getIdentity();
+		const videoKey = pageState.youtubeControl.videoKey || identity?.videoKey;
+		const sessionId = pageState.pageTranslation.sessionId;
+		if (!videoKey || (!sessionId && !identity?.requestId)) return;
+		try {
+			chrome.runtime
+				.sendMessage?.(
+					Messages.cancelYoutubeSubtitleTranslation({
+						sessionId,
+						requestId: identity?.requestId,
+						videoKey,
+					}),
+				)
+				?.catch?.(() => {});
+		} catch {
+			// Extension updates can invalidate the context before teardown.
+		}
+	}
+
+	function isCurrentYoutubeVideo() {
+		return (
+			getYoutubeVideoKey() === String(pageState.youtubeControl.videoKey || "")
+		);
+	}
+
 	function getYoutubeVideoKey() {
-		const location = window.location;
+		const location = window.location || {};
 
 		if (location.pathname === "/watch") {
 			return new URLSearchParams(location.search).get("v") || "";
@@ -407,6 +613,8 @@ export function createYoutubeRuntime(options = {}) {
 
 		if (
 			!video ||
+			!pageState.pageTranslation.sessionId ||
+			!isCurrentYoutubeVideo() ||
 			!TimedCaptionApi?.shouldReportCaptionProgress(
 				pageState.youtubeControl.lastPrefetchTimeMs,
 				currentTimeMs,
@@ -417,9 +625,11 @@ export function createYoutubeRuntime(options = {}) {
 		}
 
 		pageState.youtubeControl.lastPrefetchTimeMs = currentTimeMs;
+		const sessionId = pageState.pageTranslation.sessionId;
 		chrome.runtime
 			.sendMessage(
 				Messages.prefetchYoutubeSubtitles({
+					sessionId,
 					currentTimeMs,
 					playbackRate: TimedCaptionApi.normalizePlaybackRate(
 						video.playbackRate,
@@ -427,7 +637,23 @@ export function createYoutubeRuntime(options = {}) {
 					reason,
 				}),
 			)
-			.catch?.(() => {});
+			.then((response) => {
+				if (
+					!isCurrentYoutubeVideo() ||
+					sessionId !== pageState.pageTranslation.sessionId ||
+					disposed
+				)
+					return;
+				if (["missing", "stale"].includes(response?.sessionStatus))
+					handleYoutubeSessionLoss();
+				else if (response?.sessionStatus === "active")
+					pageState.youtubeDiagnostics.captionStatus.prefetchAvailable =
+						Boolean(response.available);
+			})
+			.catch(() => {
+				if (sessionId === pageState.pageTranslation.sessionId)
+					handleYoutubeSessionLoss();
+			});
 		return true;
 	}
 
@@ -443,12 +669,17 @@ export function createYoutubeRuntime(options = {}) {
 		reportYoutubePrefetchProgress("ratechange", true);
 	}
 
+	function handleYoutubePlaybackResume() {
+		reportYoutubePrefetchProgress("resume", true);
+	}
+
 	function clearYoutubePrefetchTracking() {
 		const video = pageState.youtubeControl.prefetchVideo;
 
 		video?.removeEventListener?.("timeupdate", handleYoutubePlaybackProgress);
 		video?.removeEventListener?.("seeking", handleYoutubePlaybackSeek);
 		video?.removeEventListener?.("ratechange", handleYoutubePlaybackRateChange);
+		video?.removeEventListener?.("playing", handleYoutubePlaybackResume);
 		pageState.youtubeControl.prefetchVideo = null;
 		pageState.youtubeControl.lastPrefetchTimeMs = 0;
 	}
@@ -458,6 +689,8 @@ export function createYoutubeRuntime(options = {}) {
 			document.querySelector?.("#movie_player video") ||
 			document.querySelector?.("video");
 
+		if (video && video === pageState.youtubeControl.prefetchVideo) return true;
+		const replaced = Boolean(pageState.youtubeControl.prefetchVideo);
 		clearYoutubePrefetchTracking();
 
 		if (!video) {
@@ -470,6 +703,14 @@ export function createYoutubeRuntime(options = {}) {
 		video.addEventListener?.("timeupdate", handleYoutubePlaybackProgress);
 		video.addEventListener?.("seeking", handleYoutubePlaybackSeek);
 		video.addEventListener?.("ratechange", handleYoutubePlaybackRateChange);
+		video.addEventListener?.("playing", handleYoutubePlaybackResume);
+		if (replaced) {
+			recordYoutubeDiagnostic(
+				"player-rebound",
+				"Playback tracking moved to the current video node",
+			);
+			reportYoutubePrefetchProgress("seek", true);
+		}
 		return true;
 	}
 
@@ -518,6 +759,11 @@ export function createYoutubeRuntime(options = {}) {
 			return;
 		}
 
+		recovery.reset();
+		pageState.pageTranslation.sessionId = "";
+		resetYoutubeCaptionFallbacks();
+		resetCaptionPresentation();
+		const request = recovery.beginRequest();
 		recordYoutubeDiagnostic("click", "Player button click received", {
 			show: true,
 		});
@@ -530,8 +776,9 @@ export function createYoutubeRuntime(options = {}) {
 
 		try {
 			const response = await chrome.runtime.sendMessage(
-				Messages.startYoutubeSubtitleTranslation(),
+				Messages.startYoutubeSubtitleTranslation(request),
 			);
+			if (!recovery.isCurrent(request) || disposed) return;
 
 			if (!response?.ok) {
 				const presentation = SubtitleApi.resolvePlayerControlError(response);
@@ -547,19 +794,14 @@ export function createYoutubeRuntime(options = {}) {
 				return;
 			}
 
-			applyYoutubeControlState(button, "active");
-			setYoutubeCaptionStatus(response.captions, response.prefetch);
-			if (response.prefetch?.available) {
-				bindYoutubePrefetchTracking();
-			} else {
-				clearYoutubePrefetchTracking();
-			}
+			applyStartedSession(response);
 			recordYoutubeDiagnostic(
 				"active",
 				`Translation session active; caption enabled=${Boolean(response.captions?.enabled)}; track found=${Boolean(response.captions?.hasTrack)}`,
 			);
 			scheduleYoutubeCaptionCheck(button);
 		} catch (error) {
+			if (!recovery.isCurrent(request) || disposed) return;
 			const rawError = String(error?.message || "");
 			const presentation = SubtitleApi.resolvePlayerControlError({
 				error: rawError,
@@ -589,6 +831,10 @@ export function createYoutubeRuntime(options = {}) {
 		const videoKey = getYoutubeVideoKey();
 
 		if (videoKey !== pageState.youtubeControl.videoKey) {
+			cancelYoutubeSession();
+			recovery.reset();
+			resetYoutubeCaptionFallbacks();
+			resetCaptionPresentation();
 			clearYoutubePrefetchTracking();
 			pageState.youtubeControl.videoKey = videoKey;
 			pageState.youtubeControl.state = "idle";
@@ -615,6 +861,7 @@ export function createYoutubeRuntime(options = {}) {
 		if (button) {
 			applyYoutubeControlState(button, pageState.youtubeControl.state);
 		}
+		if (pageState.pageTranslation.active) bindYoutubePrefetchTracking();
 	}
 
 	function scheduleYoutubeControlMount() {
@@ -630,6 +877,10 @@ export function createYoutubeRuntime(options = {}) {
 	}
 
 	function cleanupYoutubeRuntime() {
+		cancelYoutubeSession();
+		disposed = true;
+		recovery.cancel();
+		resetYoutubeCaptionFallbacks();
 		clearYoutubeCaptionCheck();
 		captionFallbackStore.clear();
 		clearYoutubePrefetchTracking();
@@ -676,6 +927,13 @@ export function createYoutubeRuntime(options = {}) {
 	}
 
 	return {
+		acceptsYoutubeSessionPayload,
+		acceptsYoutubeStartup: (payload) =>
+			!disposed && recovery.acceptsStartup(payload),
+		canQueueYoutubeCaptions: () => !recovery.isRecovering(),
+		failYoutubeCaptionFallbacks,
+		handleYoutubeQueueResult,
+		handleYoutubeSessionLoss,
 		applyYoutubeControlState,
 		bindYoutubePrefetchTracking,
 		cleanupYoutubeRuntime,

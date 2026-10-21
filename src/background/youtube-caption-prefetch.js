@@ -1,4 +1,5 @@
 import * as TimedCaptions from "../content/youtube/timed-captions.js";
+import { waitForAbortable } from "../shared/abort.js";
 
 function isTrustedYoutubeCaptionUrl(value) {
 	try {
@@ -19,6 +20,7 @@ function createYoutubeCaptionPrefetch(options = {}) {
 	const enqueue = options.enqueue || (async () => ({ queued: 0 }));
 	const onDiagnostic = options.onDiagnostic || (() => {});
 	const sessions = new Map();
+	const initializers = new Map();
 
 	function getSession(context) {
 		const session = sessions.get(context.tabId);
@@ -30,11 +32,18 @@ function createYoutubeCaptionPrefetch(options = {}) {
 	}
 
 	async function update(context = {}) {
+		context.signal?.throwIfAborted();
 		const session = getSession(context);
 
 		if (!session) {
-			return { available: false, queued: 0 };
+			return {
+				available: false,
+				queued: 0,
+				sessionStatus: sessions.has(context.tabId) ? "stale" : "missing",
+			};
 		}
+		if (!session.cues)
+			return { available: false, queued: 0, sessionStatus: "active" };
 
 		const playbackRate = TimedCaptions.normalizePlaybackRate(
 			context.playbackRate,
@@ -47,7 +56,7 @@ function createYoutubeCaptionPrefetch(options = {}) {
 		const items = TimedCaptions.buildTimedCaptionItems(windowCues);
 
 		if (items.length === 0) {
-			return { available: true, queued: 0 };
+			return { available: true, queued: 0, sessionStatus: "active" };
 		}
 
 		const placement =
@@ -65,16 +74,39 @@ function createYoutubeCaptionPrefetch(options = {}) {
 		});
 		const queued = Math.max(0, Number(result?.queued) || 0);
 
+		if (getSession(context) !== session || context.signal?.aborted)
+			return { available: false, queued: 0, sessionStatus: "stale" };
 		onDiagnostic(
 			"prefetch-window",
 			`rate=${playbackRate}; window=${windowMs}ms; placement=${placement}; cues=${items.length}; queued=${queued}`,
 			context,
 		);
-		return { available: true, queued };
+		return {
+			available: true,
+			queued,
+			sessionStatus: result?.sessionStatus || "active",
+		};
 	}
 
 	async function initialize(context = {}) {
-		const unavailable = { available: false, cueCount: 0, queued: 0 };
+		const unavailable = {
+			available: false,
+			cueCount: 0,
+			queued: 0,
+			sessionStatus: context.sessionId ? "active" : "missing",
+		};
+		const token = {};
+		initializers.set(context.tabId, token);
+		const isCurrent = () =>
+			initializers.get(context.tabId) === token && !context.signal?.aborted;
+		if (!isCurrent()) return unavailable;
+		if (context.tabId && context.sessionId)
+			sessions.set(context.tabId, {
+				cues: null,
+				frameId: context.frameId || 0,
+				sessionId: context.sessionId,
+				tabId: context.tabId,
+			});
 
 		let unavailableReason = "";
 
@@ -98,10 +130,15 @@ function createYoutubeCaptionPrefetch(options = {}) {
 		}
 
 		try {
-			const response = await fetchImpl(
-				TimedCaptions.buildJson3TrackUrl(context.baseUrl),
-				{ credentials: "include" },
+			context.signal?.throwIfAborted();
+			const response = await waitForAbortable(
+				fetchImpl(TimedCaptions.buildJson3TrackUrl(context.baseUrl), {
+					credentials: "include",
+					...(context.signal ? { signal: context.signal } : {}),
+				}),
+				context.signal,
 			);
+			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
 
 			if (!response?.ok) {
 				throw new Error(
@@ -109,7 +146,9 @@ function createYoutubeCaptionPrefetch(options = {}) {
 				);
 			}
 
-			const cues = TimedCaptions.parseJson3Captions(await response.json()).map(
+			const body = await waitForAbortable(response.json(), context.signal);
+			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
+			const cues = TimedCaptions.parseJson3Captions(body).map(
 				(cue, cueIndex) => ({ ...cue, cueIndex }),
 			);
 
@@ -124,6 +163,7 @@ function createYoutubeCaptionPrefetch(options = {}) {
 				tabId: context.tabId,
 			});
 			const result = await update({ ...context, reason: "startup" });
+			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
 
 			onDiagnostic(
 				"prefetch-ready",
@@ -135,12 +175,13 @@ function createYoutubeCaptionPrefetch(options = {}) {
 				available: true,
 				cueCount: cues.length,
 				queued: result.queued,
+				sessionStatus: result.sessionStatus,
 			};
-		} catch (error) {
-			sessions.delete(context.tabId);
+		} catch (_error) {
+			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
 			onDiagnostic(
 				"prefetch-fallback",
-				`${String(error?.message || "Timed captions unavailable")}; using visible captions`,
+				"Timed captions unavailable; using visible captions",
 				context,
 			);
 			return unavailable;
@@ -148,6 +189,7 @@ function createYoutubeCaptionPrefetch(options = {}) {
 	}
 
 	function remove(tabId) {
+		initializers.delete(tabId);
 		return sessions.delete(tabId);
 	}
 

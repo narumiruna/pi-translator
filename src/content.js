@@ -112,6 +112,11 @@ export function createContentRuntime(options = {}) {
 	}
 
 	const {
+		acceptsYoutubeSessionPayload,
+		acceptsYoutubeStartup,
+		canQueueYoutubeCaptions,
+		failYoutubeCaptionFallbacks,
+		handleYoutubeQueueResult,
 		applyYoutubeControlState,
 		bindYoutubePrefetchTracking,
 		cleanupYoutubeRuntime,
@@ -122,6 +127,7 @@ export function createContentRuntime(options = {}) {
 		resetYoutubeCaptionFallbacks,
 		settleYoutubeCaptionFallbacks,
 	} = createYoutubeRuntime({
+		activeSiteProfile: ACTIVE_SITE_PROFILE,
 		document,
 		window,
 		chrome,
@@ -598,7 +604,11 @@ export function createContentRuntime(options = {}) {
 	async function requestVisiblePageTranslationBatch() {
 		visibleTranslationFlushTimer = null;
 
-		if (!isPageTranslationSessionActive()) {
+		if (
+			!isPageTranslationSessionActive() ||
+			(SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
+				!canQueueYoutubeCaptions())
+		) {
 			return;
 		}
 
@@ -636,25 +646,30 @@ export function createContentRuntime(options = {}) {
 			return;
 		}
 
+		const sessionId = pageState.pageTranslation.sessionId;
 		try {
 			const response = await chrome.runtime.sendMessage(
 				Messages.queuePageTranslationItems({
-					sessionId: pageState.pageTranslation.sessionId,
+					sessionId,
 					items: pendingItems,
 				}),
 			);
 
 			if (SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)) {
+				handleYoutubeQueueResult(pendingItems, response, sessionId);
+				if (sessionId !== pageState.pageTranslation.sessionId) return;
 				recordYoutubeDiagnostic(
 					"queued",
 					`Background accepted ${Number(response?.queued) || 0} caption item(s)`,
 				);
 			}
-		} catch (error) {
+		} catch (_error) {
 			if (SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)) {
+				handleYoutubeQueueResult(pendingItems, { ok: false }, sessionId);
+				if (sessionId !== pageState.pageTranslation.sessionId) return;
 				recordYoutubeDiagnostic(
 					"queue-error",
-					String(error?.message || "Could not queue caption items"),
+					"Could not queue caption items",
 					{ show: true },
 				);
 			}
@@ -787,6 +802,8 @@ export function createContentRuntime(options = {}) {
 		recordYoutubeDiagnostic,
 		resetYoutubeCaptionFallbacks,
 		settleYoutubeCaptionFallbacks,
+		failYoutubeCaptionFallbacks,
+		matchYoutubeCaptionItems,
 		isDebugInfoEnabled,
 	});
 
@@ -812,10 +829,30 @@ export function createContentRuntime(options = {}) {
 		}
 
 		if (message.type === MessageTypes.START_PAGE_TRANSLATION_SESSION) {
+			if (
+				SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
+				!acceptsYoutubeStartup(message.payload || {})
+			) {
+				sendResponse({ ok: false, stale: true });
+				return;
+			}
 			sendResponse({
 				ok: true,
 				...startPageTranslationSession(message.payload || {}),
 			});
+			return;
+		}
+
+		if (
+			SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
+			[
+				MessageTypes.RENDER_PAGE_TRANSLATION_UPDATES,
+				MessageTypes.CLEAR_PAGE_PLACEHOLDERS,
+				MessageTypes.RENDER_YOUTUBE_DIAGNOSTIC_EVENT,
+			].includes(message.type) &&
+			!acceptsYoutubeSessionPayload(message.payload)
+		) {
+			sendResponse({ ok: false, stale: true });
 			return;
 		}
 

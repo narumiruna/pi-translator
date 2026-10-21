@@ -1,3 +1,5 @@
+import { waitForAbortable } from "../shared/abort.js";
+
 const DEFAULT_MAXIMUM_CONCURRENCY = 5;
 
 function buildProgressiveRequestChunks(Api, items, chunkPlan) {
@@ -28,8 +30,10 @@ async function translateItemsProgressively(options) {
 		maximumConcurrency = DEFAULT_MAXIMUM_CONCURRENCY,
 		isCurrent = () => true,
 		onTranslations = async () => {},
+		signal,
 	} = options || {};
 
+	signal?.throwIfAborted();
 	if (!Api || !settings || items.length === 0) {
 		return {
 			successes: [],
@@ -43,35 +47,44 @@ async function translateItemsProgressively(options) {
 	const requestChunks = buildProgressiveRequestChunks(Api, items, chunkPlan);
 	const mergeState = Api.createProgressiveMergeState(chunkPlan);
 	let callbackError = null;
-	const result = await Api.requestTranslationsBatchedProgressive({
-		settings,
-		chunks: requestChunks,
-		shouldContinue: isCurrent,
-		concurrency: buildProgressiveRequestConcurrency(
-			items,
-			requestChunks,
-			maximumConcurrency,
-		),
-		onChunkResolved: async ({ translations }) => {
-			if (callbackError || !isCurrent()) {
-				return;
-			}
-
-			const completedTranslations = Api.consumeProgressiveTranslations(
-				chunkPlan,
-				mergeState,
-				translations,
-			);
-
-			if (completedTranslations.length > 0 && isCurrent()) {
-				try {
-					await onTranslations(completedTranslations);
-				} catch (error) {
-					callbackError ||= error;
+	const result = await waitForAbortable(
+		Api.requestTranslationsBatchedProgressive({
+			settings,
+			signal,
+			chunks: requestChunks,
+			shouldContinue: () => !signal?.aborted && isCurrent(),
+			concurrency: buildProgressiveRequestConcurrency(
+				items,
+				requestChunks,
+				maximumConcurrency,
+			),
+			onChunkResolved: async ({ translations }) => {
+				if (callbackError || signal?.aborted || !isCurrent()) {
+					return;
 				}
-			}
-		},
-	});
+
+				const completedTranslations = Api.consumeProgressiveTranslations(
+					chunkPlan,
+					mergeState,
+					translations,
+				);
+
+				if (
+					completedTranslations.length > 0 &&
+					!signal?.aborted &&
+					isCurrent()
+				) {
+					try {
+						await onTranslations(completedTranslations);
+					} catch (error) {
+						callbackError ||= error;
+					}
+				}
+			},
+		}),
+		signal,
+	);
+	signal?.throwIfAborted();
 
 	if (callbackError) {
 		throw callbackError;

@@ -178,6 +178,43 @@ test("YouTube diagnostic store retains root-cause events after activity rolls", 
 	assert.deepEqual(store.getNotableEvents(), []);
 });
 
+test("YouTube diagnostics retain recovery failures and outcomes without request data", () => {
+	const store = YoutubeDiagnostics.createDiagnosticStore();
+	for (const stage of [
+		"session-lost",
+		"recovery-attempt",
+		"request-timeout",
+		"setup-error",
+		"player-rebound",
+		"recovery-success",
+		"recovery-error",
+	])
+		store.add(stage, `Pipeline stage: ${stage}`);
+	for (let index = 0; index < 40; index++)
+		store.add("extraction", "caption source count=1");
+	assert.equal(store.getEvents().length, 30);
+	assert.equal(store.getNotableEvents().length, 7);
+	for (const [recovery, code] of [
+		[{ inProgress: true }, "session-recovering"],
+		[{ exhausted: true }, "session-recovery-exhausted"],
+	]) {
+		const diagnosis = YoutubeDiagnostics.diagnoseYoutubePipeline({ recovery });
+		assert.equal(diagnosis.status, "degraded");
+		assert.equal(diagnosis.issues[0].code, code);
+	}
+	const report = YoutubeDiagnostics.createDiagnosticReport(
+		{ recovery: { attempts: 3, exhausted: true } },
+		store.getEvents(),
+		store.getNotableEvents(),
+	);
+	assert.match(report, /request-timeout/);
+	assert.match(report, /recovery-success/);
+	assert.doesNotMatch(
+		report,
+		/apiKey|Authorization|timedtext|sourceText|prompt|responseBody/,
+	);
+});
+
 test("YouTube diagnostics identify caption-churn starvation", () => {
 	assert.deepEqual(
 		YoutubeDiagnostics.diagnoseYoutubePipeline({

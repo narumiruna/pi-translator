@@ -15,6 +15,7 @@ function createCaptionFallbackStore(options = {}) {
 	const slots = new Map();
 	const slotByActiveId = new Map();
 	const supersededIds = new Set();
+	const failures = new Map();
 	let coalescedFallbackCount = 0;
 	let supersededResultCount = 0;
 
@@ -49,6 +50,11 @@ function createCaptionFallbackStore(options = {}) {
 		}
 
 		const current = slots.get(slotId);
+		const failed = failures.get(slotId);
+		if (failed?.text !== String(item.text || "")) failures.delete(slotId);
+		if (failed?.text === String(item.text || "") && failed.count >= 2) {
+			return { accepted: false, coalesced: false };
+		}
 
 		if (!current) {
 			if (slotByActiveId.has(item.id) || slots.size >= slotLimit) {
@@ -86,6 +92,29 @@ function createCaptionFallbackStore(options = {}) {
 				supersedeSlot(slotId);
 			}
 		}
+		for (const slotId of failures.keys()) {
+			if (!active.has(slotId)) failures.delete(slotId);
+		}
+	}
+
+	function fail(id, options = {}) {
+		const slotId = slotByActiveId.get(id);
+		const state = slots.get(slotId);
+		if (!state) return { tracked: false, shouldRetry: false };
+		const previous = failures.get(slotId);
+		const count = previous?.text === state.activeText ? previous.count + 1 : 1;
+		failures.set(slotId, {
+			text: state.activeText,
+			count: options.retryable ? count : 2,
+		});
+		const latestChanged =
+			state.latest && state.latest.text !== state.activeText;
+		settle(id);
+		return {
+			tracked: true,
+			shouldRetry: Boolean(options.retryable && (latestChanged || count < 2)),
+			retryExhausted: !options.retryable || (!latestChanged && count >= 2),
+		};
 	}
 
 	function getLatest(id) {
@@ -127,6 +156,7 @@ function createCaptionFallbackStore(options = {}) {
 		slots.clear();
 		slotByActiveId.clear();
 		supersededIds.clear();
+		failures.clear();
 		coalescedFallbackCount = 0;
 		supersededResultCount = 0;
 	}
@@ -148,7 +178,7 @@ function createCaptionFallbackStore(options = {}) {
 		};
 	}
 
-	return { clear, getLatest, getSummary, offer, retain, settle };
+	return { clear, fail, getLatest, getSummary, offer, retain, settle };
 }
 
 export { createCaptionFallbackStore };
