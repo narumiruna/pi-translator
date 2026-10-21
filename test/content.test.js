@@ -106,7 +106,9 @@ function createFakeElement(options = {}) {
 
 	return {
 		isConnected: options.isConnected ?? true,
+		// biome-ignore lint/performance/useDomNodeTextContent: These are fixture values, not DOM reads.
 		innerText: options.innerText || options.textContent || "",
+		// biome-ignore lint/performance/useDomNodeTextContent: These are fixture values, not DOM reads.
 		textContent: options.textContent || options.innerText || "",
 		tagName: options.tagName || "DIV",
 		parentElement: options.parentElement || null,

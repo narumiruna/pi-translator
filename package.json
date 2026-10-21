@@ -27,15 +27,15 @@
 		"*.{js,jsx,ts,tsx,cjs,cts,mjs,mts,json,jsonc,css,svelte,vue,astro,graphql,gql}": "biome check --write --files-ignore-unknown=true --no-errors-on-unmatched"
 	},
 	"devDependencies": {
-		"@axe-core/playwright": "^4.13.0",
-		"@biomejs/biome": "2.5.15",
-		"acorn": "8.18.0",
-		"es-module-lexer": "3.0.2",
-		"extension": "4.1.31",
+		"@axe-core/playwright": "^4.14.0",
+		"@biomejs/biome": "2.6.2",
+		"acorn": "8.19.0",
+		"es-module-lexer": "3.0.4",
+		"extension": "4.1.34",
 		"husky": "9.1.7",
 		"lint-staged": "17.6.0",
-		"playwright": "1.63.0",
-		"vitest": "^5.0.3"
+		"playwright": "1.64.1",
+		"vitest": "^5.0.5"
 	},
 	"type": "module",
 	"overrides": {
@@ -43,12 +43,12 @@
 		"image-size": "2.0.2"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "^1.0.2",
+		"@earendil-works/pi-ai": "^1.3.0",
 		"@radix-ui/react-icons": "^1.3.2",
 		"@radix-ui/themes": "^3.3.0",
 		"pdfjs-dist": "6.4.299",
-		"radix-ui": "^1.6.7",
-		"react": "^19.3.0",
-		"react-dom": "^19.3.0"
+		"radix-ui": "^1.8.1",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1"
 	}
 }

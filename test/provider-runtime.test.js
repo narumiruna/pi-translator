@@ -465,9 +465,50 @@ test("provider runtime resolves configured endpoint origins without credential d
 	assert.doesNotMatch(JSON.stringify(origins), /secret|account-id/u);
 });
 
+test("Azure login stores browser configuration and resolves the configured origin", async () => {
+	const runtime = new ProviderRuntime({ chrome: createChrome() });
+	const model = runtime.models
+		.getModels("azure")
+		.find((item) => item.api === "azure-openai-responses");
+	const settings = { provider: "azure", model: model.id };
+	await assert.rejects(
+		runtime.getModelEndpointPatterns(settings),
+		/No browser endpoint is configured/u,
+	);
+
+	const answers = [
+		" azure-secret ",
+		" https://resource.openai.azure.com ",
+		" 2025-04-01-preview ",
+		` ${model.id}=translation-deployment `,
+	];
+	const prompts = [];
+	await runtime.login("azure", "api_key", {
+		async prompt(prompt) {
+			prompts.push(prompt);
+			return answers.shift();
+		},
+	});
+
+	assert.equal(prompts.length, 4);
+	assert.deepEqual(await runtime.credentials.read("azure"), {
+		type: "api_key",
+		key: "azure-secret",
+		env: {
+			AZURE_OPENAI_BASE_URL: "https://resource.openai.azure.com",
+			AZURE_OPENAI_API_VERSION: "2025-04-01-preview",
+			AZURE_OPENAI_DEPLOYMENT_NAME_MAP: `${model.id}=translation-deployment`,
+		},
+	});
+	assert.deepEqual(await runtime.getModelEndpointPatterns(settings), [
+		"https://resource.openai.azure.com/*",
+	]);
+	assert.equal((await runtime.getAuthStatus("azure")).loggedIn, true);
+});
+
 test("model cache identity tracks credential-scoped endpoint configuration", async () => {
 	const runtime = new ProviderRuntime({ chrome: createChrome() });
-	const providerId = "azure-openai-responses";
+	const providerId = "azure";
 	const model = runtime.models.getModels(providerId)[0];
 	const settings = { provider: providerId, model: model.id };
 	const saveCredential = (env) =>
