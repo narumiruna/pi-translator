@@ -1,3 +1,4 @@
+import { waitForAbortable } from "../shared/abort.js";
 import {
 	resolveNativeYoutubeCaptionRequestUrl,
 	resolveYoutubeCaptionTracks,
@@ -136,13 +137,17 @@ function probeYoutubeCaptionState(trackerKey) {
 	};
 }
 
-async function enableYoutubeCaptions(chrome, tabId) {
-	const [result] = await chrome.scripting.executeScript({
-		target: { tabId },
-		world: "MAIN",
-		args: [TRACKER_KEY],
-		func: probeYoutubeCaptionState,
-	});
+async function enableYoutubeCaptions(chrome, tabId, { signal } = {}) {
+	signal?.throwIfAborted();
+	const [result] = await waitForAbortable(
+		chrome.scripting.executeScript({
+			target: { tabId },
+			world: "MAIN",
+			args: [TRACKER_KEY],
+			func: probeYoutubeCaptionState,
+		}),
+		signal,
+	);
 	const captionState = result?.result;
 
 	if (!captionState) {
@@ -172,7 +177,9 @@ async function captureNativeYoutubeCaptionRequestUrl(
 	chrome,
 	tabId,
 	advertisedUrl,
+	{ signal } = {},
 ) {
+	signal?.throwIfAborted();
 	let advertised = null;
 
 	try {
@@ -187,58 +194,61 @@ async function captureNativeYoutubeCaptionRequestUrl(
 			advertised.searchParams.get(name) || "",
 		]),
 	);
-	const [result] = await chrome.scripting.executeScript({
-		target: { tabId },
-		world: "MAIN",
-		args: [expected, TRACKER_KEY],
-		func: async (match, trackerKey) => {
-			const collect = () => {
-				const trackedUrls = Array.isArray(globalThis[trackerKey]?.urls)
-					? globalThis[trackerKey].urls
-					: [];
+	const [result] = await waitForAbortable(
+		chrome.scripting.executeScript({
+			target: { tabId },
+			world: "MAIN",
+			args: [expected, TRACKER_KEY],
+			func: async (match, trackerKey) => {
+				const collect = () => {
+					const trackedUrls = Array.isArray(globalThis[trackerKey]?.urls)
+						? globalThis[trackerKey].urls
+						: [];
 
-				return [
-					...trackedUrls,
-					...performance
-						.getEntriesByType("resource")
-						.map((entry) => entry.name),
-				]
-					.flatMap((entryName) => {
-						try {
-							const url = new URL(entryName);
-							const hostname = url.hostname.toLowerCase();
+					return [
+						...trackedUrls,
+						...performance
+							.getEntriesByType("resource")
+							.map((entry) => entry.name),
+					]
+						.flatMap((entryName) => {
+							try {
+								const url = new URL(entryName);
+								const hostname = url.hostname.toLowerCase();
 
-							if (
-								url.protocol !== "https:" ||
-								(hostname !== "youtube.com" &&
-									!hostname.endsWith(".youtube.com")) ||
-								url.pathname !== "/api/timedtext" ||
-								Object.entries(match).some(
-									([name, value]) =>
-										value && url.searchParams.get(name) !== value,
-								)
-							) {
+								if (
+									url.protocol !== "https:" ||
+									(hostname !== "youtube.com" &&
+										!hostname.endsWith(".youtube.com")) ||
+									url.pathname !== "/api/timedtext" ||
+									Object.entries(match).some(
+										([name, value]) =>
+											value && url.searchParams.get(name) !== value,
+									)
+								) {
+									return [];
+								}
+
+								return [url.toString()];
+							} catch (_error) {
 								return [];
 							}
+						})
+						.slice(-8);
+				};
+				const deadline = Date.now() + 1200;
+				let urls = collect();
 
-							return [url.toString()];
-						} catch (_error) {
-							return [];
-						}
-					})
-					.slice(-8);
-			};
-			const deadline = Date.now() + 1200;
-			let urls = collect();
+				while (urls.length === 0 && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 50));
+					urls = collect();
+				}
 
-			while (urls.length === 0 && Date.now() < deadline) {
-				await new Promise((resolve) => setTimeout(resolve, 50));
-				urls = collect();
-			}
-
-			return urls;
-		},
-	});
+				return urls;
+			},
+		}),
+		signal,
+	);
 
 	return resolveNativeYoutubeCaptionRequestUrl(
 		result?.result,

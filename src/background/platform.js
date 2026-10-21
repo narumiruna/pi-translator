@@ -21,7 +21,7 @@ export function createBackgroundPlatform(options = {}) {
 		return /^https?:\/\//i.test(String(url || ""));
 	}
 
-	async function loadSettingsOrOpenOptions() {
+	async function loadSettingsOrOpenOptions({ interactive = true } = {}) {
 		const settings = await Settings.getSettings();
 
 		if (Settings.hasCompleteSettings(settings)) {
@@ -33,7 +33,7 @@ export function createBackgroundPlatform(options = {}) {
 			}
 		}
 
-		await chrome.runtime.openOptionsPage();
+		if (interactive) await chrome.runtime.openOptionsPage();
 		throw new Error("Settings are incomplete. Configure the extension first.");
 	}
 
@@ -202,11 +202,13 @@ export function createBackgroundPlatform(options = {}) {
 		translations,
 		settings,
 		frameId,
+		sessionId,
 	) {
 		if (!translations?.length) return;
-		await chrome.tabs.sendMessage(
+		return chrome.tabs.sendMessage(
 			tabId,
 			Messages.renderPageTranslationUpdates({
+				...(sessionId ? { sessionId } : {}),
 				targetLanguage,
 				translations,
 				...buildTranslationAppearancePayload(settings),
@@ -216,22 +218,42 @@ export function createBackgroundPlatform(options = {}) {
 		);
 	}
 
-	async function sendYoutubeDiagnosticEvent(tabId, frameId, stage, detail) {
+	async function sendYoutubeDiagnosticEvent(
+		tabId,
+		frameId,
+		stage,
+		detail,
+		sessionId,
+	) {
 		await chrome.tabs
 			.sendMessage(
 				tabId,
-				Messages.renderYoutubeDiagnosticEvent({ stage, detail }),
+				Messages.renderYoutubeDiagnosticEvent({
+					stage,
+					detail,
+					...(sessionId ? { sessionId } : {}),
+				}),
 				getFrameMessageOptions(frameId),
 			)
 			.catch(() => {});
 	}
 
-	async function clearPagePlaceholders(tabId, ids, frameId) {
+	async function clearPagePlaceholders(
+		tabId,
+		ids,
+		frameId,
+		failure,
+		sessionId,
+	) {
 		if (!ids?.length) return;
 		await chrome.tabs
 			.sendMessage(
 				tabId,
-				Messages.clearPagePlaceholders({ ids }),
+				Messages.clearPagePlaceholders({
+					ids,
+					...failure,
+					...(sessionId ? { sessionId } : {}),
+				}),
 				getFrameMessageOptions(frameId),
 			)
 			.catch(() => {});
@@ -253,7 +275,7 @@ export function createBackgroundPlatform(options = {}) {
 			: "";
 	}
 
-	async function ensureApiPermission(settings) {
+	async function ensureApiPermission(settings, { interactive = true } = {}) {
 		const origins = ProviderRuntime
 			? await ProviderRuntime.getModelEndpointPatterns(settings)
 			: [
@@ -264,7 +286,7 @@ export function createBackgroundPlatform(options = {}) {
 		const permissions = { origins };
 		return (
 			(await chrome.permissions.contains(permissions)) ||
-			chrome.permissions.request(permissions)
+			(interactive && chrome.permissions.request(permissions))
 		);
 	}
 

@@ -11,6 +11,13 @@ const NOTABLE_EVENT_STAGES = new Set([
 	"message-error",
 	"prefetch-fallback",
 	"queue-error",
+	"session-lost",
+	"recovery-attempt",
+	"recovery-success",
+	"recovery-error",
+	"request-timeout",
+	"setup-error",
+	"player-rebound",
 ]);
 const MAX_TRACE_WORD_OFFSETS = 32;
 const TRACE_CACHE_PATHS = new Set([
@@ -124,6 +131,18 @@ function diagnoseYoutubePipeline(snapshot = {}) {
 	const captionTrack = snapshot.captionTrack || {};
 	const captionTrace = snapshot.captionTrace || {};
 	const pipeline = snapshot.pipeline || {};
+
+	if (snapshot.recovery?.exhausted) {
+		issues.push({
+			code: "session-recovery-exhausted",
+			detail: "Automatic recovery stopped; click the player control to retry.",
+		});
+	} else if (snapshot.recovery?.inProgress) {
+		issues.push({
+			code: "session-recovering",
+			detail: "The background subtitle session is being restored.",
+		});
+	}
 
 	if (captionTrack.timedTrackAvailable && !captionTrack.prefetchAvailable) {
 		issues.push({

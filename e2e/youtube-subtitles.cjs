@@ -13,12 +13,23 @@ const {
 	waitFor,
 } = require("./lib/extension-test-helpers.cjs");
 
-const YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v=g7AxxkywiFI";
+const {
+	getExtensionWorker,
+	routeYoutubeFixture,
+} = require("./lib/youtube-fixture.cjs");
+const { runYoutubeRecoveryCases } = require("./lib/youtube-recovery.cjs");
+const { runLiveYoutubePlayerSmoke } = require("./lib/youtube-live-player.cjs");
+
+const YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v=subtitle-regression";
 const INITIAL_CAPTION = `This result must not survive ${Date.now()}.`;
 const CURRENT_CAPTION = `Pi gives you one small tool ${Date.now() + 1}.`;
 const CURRENT_CAPTION_PREFIX = "Pi gives you one";
 const NEXT_CAPTION = `The next cue stays synchronized ${Date.now() + 2}.`;
 const FINAL_CAPTION = `The final cue replaces it cleanly ${Date.now() + 3}.`;
+const LONG_CAPTIONS = [
+	`Ten minute cue remains available ${Date.now() + 20}.`,
+	`Twenty minute cue remains available ${Date.now() + 21}.`,
+];
 const SEEK_CAPTION = `A seek starts a new urgent window ${Date.now() + 4}.`;
 const BILINGUAL_CAPTIONS = [
 	`Keep this original caption visible ${Date.now() + 5}.`,
@@ -48,6 +59,11 @@ function buildTimedCaptionFixture() {
 				dDurationMs: 2000,
 				segs: [{ utf8: BILINGUAL_CAPTIONS[1] }],
 			},
+			...LONG_CAPTIONS.map((text, index) => ({
+				tStartMs: (index + 1) * 600000,
+				dDurationMs: 2000,
+				segs: [{ utf8: text }],
+			})),
 			{
 				tStartMs: 120000,
 				dDurationMs: 2000,
@@ -313,8 +329,8 @@ async function installCaptionTrackMetadata(page, options = {}) {
 	);
 }
 
-async function clearStoredSettings(context) {
-	const worker = context.serviceWorkers()[0];
+async function clearStoredSettings(context, extensionId) {
+	const worker = getExtensionWorker(context, extensionId);
 
 	await worker.evaluate(() =>
 		Promise.all([
@@ -335,6 +351,7 @@ async function main() {
 
 	try {
 		runState = await launchExtensionContext(config);
+		await routeYoutubeFixture(runState.context);
 		await runState.context.route(
 			"https://www.youtube.com/api/timedtext?v=vibe-translator-e2e**",
 			(route) =>
@@ -347,6 +364,14 @@ async function main() {
 		await saveOptions(runState.context, runState.extensionId, config, {
 			runConnectionTest: false,
 		});
+
+		if (process.argv.includes("--fixture-only")) {
+			console.log(
+				"Live YouTube smoke not run: --fixture-only uses the packaged synthetic player.",
+			);
+		} else {
+			await runLiveYoutubePlayerSmoke({ ...runState, config });
+		}
 
 		const page = await runState.context.newPage();
 		await page.setViewportSize({ width: 1280, height: 800 });
@@ -522,11 +547,14 @@ async function main() {
 			async () =>
 				/timed-prefix=1/.test((await diagnosticsPanel.textContent()) || ""),
 			{
-				timeoutMs: REQUEST_TIMEOUT_MS,
+				timeoutMs: 10000,
 				timeoutMessage:
 					"The progressive native caption did not use the active timed cue.",
 			},
-		);
+		).catch(async (error) => {
+			error.message += `\nDiagnostics:\n${await diagnosticsPanel.textContent()}`;
+			throw error;
+		});
 		const progressiveDiagnostics = (await diagnosticsPanel.textContent()) || "";
 		const trackedCaptionRequests = await page.evaluate(() =>
 			(globalThis.__otCaptionRequestTracker?.urls || []).map((value) => {
@@ -867,7 +895,17 @@ async function main() {
 		assert.doesNotMatch(fallbackDiagnostics, /api\/timedtext/u);
 		assert.doesNotMatch(fallbackDiagnostics, /missing target [1-9]/);
 
-		await clearStoredSettings(runState.context);
+		await runYoutubeRecoveryCases({
+			...runState,
+			config,
+			mockApiServer,
+			installCaptionFixture,
+			installCaptionTrackMetadata,
+			waitForCaptionTranslation,
+			longCaptions: LONG_CAPTIONS,
+		});
+
+		await clearStoredSettings(runState.context, runState.extensionId);
 		await page.reload({ waitUntil: "domcontentloaded" });
 		const reloadedControl = page.locator(
 			"#movie_player [data-ot-youtube-control]",

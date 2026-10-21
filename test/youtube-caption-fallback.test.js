@@ -120,6 +120,25 @@ test("caption fallback bounds slots and rejects duplicate active identities", ()
 	assert.equal(store.getSummary().activeSlotCount, 2);
 });
 
+test("failed fallback retries only once and a changed latest snapshot remains eligible", () => {
+	const store = createCaptionFallbackStore();
+	const item = { id: "one", text: "Caption" };
+	store.offer("caption-0", item);
+	assert.equal(store.fail("one", { retryable: true }).shouldRetry, true);
+	assert.equal(store.offer("caption-0", item).accepted, true);
+	assert.equal(store.fail("one", { retryable: true }).retryExhausted, true);
+	assert.equal(store.offer("caption-0", item).accepted, false);
+	store.offer("caption-0", { id: "two", text: "New caption" });
+	store.offer("caption-0", { id: "three", text: "Latest caption" });
+	assert.equal(store.fail("two", { retryable: true }).shouldRetry, true);
+	assert.equal(
+		store.offer("caption-0", { id: "three", text: "Latest caption" }).accepted,
+		true,
+	);
+	assert.equal(store.fail("three", { retryable: false }).shouldRetry, false);
+	assert.equal(store.getSummary().activeSlotCount, 0);
+});
+
 test("caption fallback classifies removed slots and clears retained state", () => {
 	const store = createCaptionFallbackStore();
 

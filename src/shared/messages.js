@@ -9,6 +9,7 @@ const MESSAGE_TYPES = Object.freeze({
 	GET_MODEL_ENDPOINTS: "get-model-endpoints",
 	CLEAR_PAGE_PLACEHOLDERS: "clear-page-placeholders",
 	CLEAR_PENDING_TRANSLATIONS: "clear-pending-translations",
+	CANCEL_YOUTUBE_SUBTITLE_TRANSLATION: "cancel-youtube-subtitle-translation",
 	OPEN_OPTIONS: "open-options",
 	PING: "ping",
 	PREFETCH_YOUTUBE_SUBTITLES: "prefetch-youtube-subtitles",
@@ -128,14 +129,25 @@ function startPageTranslationSession(payload) {
 	return createMessage(MESSAGE_TYPES.START_PAGE_TRANSLATION_SESSION, payload);
 }
 
-function startYoutubeSubtitleTranslation() {
-	return createMessage(MESSAGE_TYPES.START_YOUTUBE_SUBTITLE_TRANSLATION);
+function cancelYoutubeSubtitleTranslation(payload) {
+	return createMessage(
+		MESSAGE_TYPES.CANCEL_YOUTUBE_SUBTITLE_TRANSLATION,
+		payload,
+	);
+}
+
+function startYoutubeSubtitleTranslation(payload) {
+	return createMessage(
+		MESSAGE_TYPES.START_YOUTUBE_SUBTITLE_TRANSLATION,
+		payload,
+	);
 }
 
 export {
 	automationOpenPdf,
 	automationTranslatePage,
 	automationTranslateSelection,
+	cancelYoutubeSubtitleTranslation,
 	clearPagePlaceholders,
 	clearPendingTranslations,
 	createMessage,

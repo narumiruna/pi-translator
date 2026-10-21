@@ -110,6 +110,10 @@ function buildMockTranslations(requestPayload) {
 async function createMockApiServer(options = {}) {
 	const state = {
 		activeResponseCount: 0,
+		abortedResponseCount: 0,
+		stallNextResponseCount: 0,
+		nextDelays: [],
+		requests: [],
 		failNextResponseCount: 0,
 		failOnTextIncludes: options.failOnTextIncludes || "",
 		maxActiveResponseCount: 0,
@@ -117,6 +121,7 @@ async function createMockApiServer(options = {}) {
 		responseItemIds: [],
 		responseRequestCount: 0,
 	};
+	const sockets = new Set();
 	const server = http.createServer(async (request, response) => {
 		const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
 
@@ -135,6 +140,31 @@ async function createMockApiServer(options = {}) {
 				state.activeResponseCount,
 			);
 			state.responseRequestCount += 1;
+			const record = {
+				startedAt: Date.now(),
+				finishedAt: null,
+				aborted: false,
+				stalled: state.stallNextResponseCount > 0,
+				itemIds: [],
+			};
+			state.requests.push(record);
+			if (record.stalled) state.stallNextResponseCount -= 1;
+			const failNextResponse = state.failNextResponseCount > 0;
+			if (failNextResponse) state.failNextResponseCount -= 1;
+			const delayMs = state.nextDelays.shift() ?? state.responseDelayMs;
+			let delayTimer;
+			let releaseDelay;
+			const settle = () => {
+				if (record.finishedAt !== null) return;
+				record.finishedAt = Date.now();
+				record.aborted = !response.writableFinished;
+				if (record.aborted) state.abortedResponseCount += 1;
+				state.activeResponseCount -= 1;
+				clearTimeout(delayTimer);
+				releaseDelay?.();
+			};
+			response.once("finish", settle);
+			response.once("close", settle);
 
 			try {
 				let requestPayload = {};
@@ -147,21 +177,25 @@ async function createMockApiServer(options = {}) {
 
 				const translations = buildMockTranslations(requestPayload);
 
-				state.responseItemIds.push(
-					...translations.map((translation) => translation.id),
-				);
+				record.itemIds = translations.map((translation) => translation.id);
+				state.responseItemIds.push(...record.itemIds);
 
-				if (state.responseDelayMs > 0) {
+				if (record.stalled) {
+					// Send real SSE headers, but never send a body or finish the response.
+					response.writeHead(200, {
+						"Content-Type": "text/event-stream; charset=utf-8",
+						"Cache-Control": "no-cache",
+					});
+					response.flushHeaders();
+					return;
+				}
+				if (delayMs > 0) {
 					await new Promise((resolve) => {
-						setTimeout(resolve, state.responseDelayMs);
+						releaseDelay = resolve;
+						delayTimer = setTimeout(resolve, delayMs);
 					});
 				}
-
-				const failNextResponse = state.failNextResponseCount > 0;
-
-				if (failNextResponse) {
-					state.failNextResponseCount -= 1;
-				}
+				if (response.destroyed) return;
 				if (
 					failNextResponse ||
 					(state.failOnTextIncludes &&
@@ -240,8 +274,8 @@ async function createMockApiServer(options = {}) {
 					}),
 				);
 				return;
-			} finally {
-				state.activeResponseCount = Math.max(0, state.activeResponseCount - 1);
+			} catch (error) {
+				response.destroy(error);
 			}
 		}
 
@@ -251,6 +285,10 @@ async function createMockApiServer(options = {}) {
 		response.end(JSON.stringify({ error: { message: "Not Found" } }));
 	});
 
+	server.on("connection", (socket) => {
+		sockets.add(socket);
+		socket.once("close", () => sockets.delete(socket));
+	});
 	await new Promise((resolve, reject) => {
 		server.once("error", reject);
 		server.listen(0, "127.0.0.1", resolve);
@@ -262,6 +300,28 @@ async function createMockApiServer(options = {}) {
 	return {
 		origin: `http://127.0.0.1:${port}`,
 		baseUrl: `http://127.0.0.1:${port}/v1`,
+		getActiveResponseCount() {
+			return state.activeResponseCount;
+		},
+		getAbortedResponseCount() {
+			return state.abortedResponseCount;
+		},
+		getRequests() {
+			return state.requests.map((record) => ({
+				...record,
+				itemIds: [...record.itemIds],
+			}));
+		},
+		stallNextResponses(count = 1) {
+			state.stallNextResponseCount = Math.max(0, Number(count) || 0);
+		},
+		delayNextResponses(delayMs, count = 1) {
+			state.nextDelays.push(
+				...Array.from({ length: Math.max(0, Number(count) || 0) }, () =>
+					Math.max(0, Number(delayMs) || 0),
+				),
+			);
+		},
 		getMaxActiveResponseCount() {
 			return state.maxActiveResponseCount;
 		},
@@ -290,6 +350,7 @@ async function createMockApiServer(options = {}) {
 
 					resolve();
 				});
+				for (const socket of sockets) socket.destroy();
 			}),
 	};
 }

@@ -64,7 +64,7 @@ test("page translation queue batches work with bounded concurrency", async () =>
 			{ id: "d" },
 			{ id: "e" },
 		]),
-		{ queued: 5 },
+		{ queued: 5, sessionStatus: "active" },
 	);
 	await nextTick();
 
@@ -295,7 +295,7 @@ test("front placement reprioritizes matching pending items in request order", as
 			undefined,
 			{ placement: "front" },
 		),
-		{ queued: 1 },
+		{ queued: 1, sessionStatus: "active" },
 	);
 
 	for (const expected of [
@@ -339,7 +339,7 @@ test("page translation queue deduplicates pending item ids", async () => {
 			{ id: "a" },
 			{ id: "b" },
 		]),
-		{ queued: 2 },
+		{ queued: 2, sessionStatus: "active" },
 	);
 	await nextTick();
 
@@ -382,7 +382,10 @@ test("page translation queue ignores stale session ids", () => {
 	const session = queue.create(3, {});
 
 	assert.equal(queue.get(3, "stale"), null);
-	assert.deepEqual(queue.enqueue(3, "stale", [{ id: "a" }]), { queued: 0 });
+	assert.deepEqual(queue.enqueue(3, "stale", [{ id: "a" }]), {
+		queued: 0,
+		sessionStatus: "stale",
+	});
 	assert.equal(queue.get(3, session.sessionId), session);
 });
 
@@ -400,11 +403,12 @@ test("page translation queue isolates duplicate source ids across frames", async
 		queue.enqueue(7, topSession.sessionId, [{ id: "ot-1" }], 0),
 		{
 			queued: 1,
+			sessionStatus: "active",
 		},
 	);
 	assert.deepEqual(
 		queue.enqueue(7, frameSession.sessionId, [{ id: "ot-1" }], 12),
-		{ queued: 1 },
+		{ queued: 1, sessionStatus: "active" },
 	);
 	await nextTick();
 
@@ -451,7 +455,7 @@ test("page translation queue deduplicates completed timed cues without blocking 
 				dedupeCompleted: true,
 			},
 		]),
-		{ queued: 0 },
+		{ queued: 0, sessionStatus: "active" },
 	);
 	assert.deepEqual(
 		queue.enqueue(8, session.sessionId, [
@@ -462,6 +466,6 @@ test("page translation queue deduplicates completed timed cues without blocking 
 			},
 			{ id: "ot-source-1", kind: "subtitle" },
 		]),
-		{ queued: 2 },
+		{ queued: 2, sessionStatus: "active" },
 	);
 });

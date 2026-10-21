@@ -57,6 +57,8 @@
 
 - Symptom: Anthology role-page prose shrinks to 20 px after translation. Cause: heading sibling notes become extra items in a responsive row flex container. Fix: keep notes inside unconstrained flow sources, as for grid items. Sources with internal flex/grid layout or clipping need a sibling under a safe flow/column-flex parent; hide or skip notes when no safe placement exists, and reconcile after resize. Use `computedStyleMap().get("height")` to distinguish `auto` from fixed height; `getComputedStyle().height` returns used pixels for both. A non-auto/content vertical flex basis can also prevent growth.
 
+- YouTube recovery E2E must select the extension worker by URL, then verify stopped/running events and loss of a worker-global marker; YouTube can register its own worker after it, and Chrome can reuse worker target/version IDs after restart. Synthetic MAIN-world video property overrides are not visible in the content-script isolated world; set native media time/rate instead.
+
 ## TASTE
 - Selection translation UI should default to a compact tooltip-sized card; long content can expand, but the default should prefer density over empty space.
 - Inline page translations should default to a compact, neutral secondary line with a thin accent and explicit translation label; avoid large card backgrounds that overpower host-page hierarchy.

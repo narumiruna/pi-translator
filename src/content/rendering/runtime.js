@@ -37,6 +37,8 @@ export function createContentRenderer(options = {}) {
 		recordYoutubeDiagnostic,
 		resetYoutubeCaptionFallbacks,
 		settleYoutubeCaptionFallbacks,
+		failYoutubeCaptionFallbacks,
+		matchYoutubeCaptionItems,
 		isDebugInfoEnabled,
 	} = options;
 	function isLayoutItem(element) {
@@ -417,6 +419,12 @@ export function createContentRenderer(options = {}) {
 
 		renderExtractionDebugPanel(extraction.debug);
 		if (SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)) {
+			if (matchYoutubeCaptionItems) {
+				extraction.items = matchYoutubeCaptionItems(
+					extraction.items || [],
+				).missing;
+				extraction.pendingSegments = extraction.items.length;
+			}
 			recordYoutubeDiagnostic(
 				"initial-extraction",
 				`Found ${extraction.totalSegments} caption source(s); ${extraction.items?.length || 0} pending item(s)`,
@@ -811,6 +819,7 @@ export function createContentRenderer(options = {}) {
 				`Received ${receivedCount} translation(s); rendered ${rendered}; rebound ${rebound}; provisional ${provisional}; cached ${cached}; superseded ${superseded}; timed-prefix=${timedPrefix}; stale ${stale}; missing target ${missingTarget}`,
 				{
 					outcomes: {
+						delivered: payload.sessionId ? receivedCount : 0,
 						cached,
 						provisional,
 						rendered,
@@ -829,7 +838,8 @@ export function createContentRenderer(options = {}) {
 		const ids = new Set(payload.ids || []);
 
 		if (SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)) {
-			settleYoutubeCaptionFallbacks?.([...ids]);
+			if (payload.reason) failYoutubeCaptionFallbacks?.(payload);
+			else settleYoutubeCaptionFallbacks?.([...ids]);
 		}
 		let cleared = 0;
 

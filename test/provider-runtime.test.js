@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
@@ -224,6 +225,165 @@ test("provider completion forwards supported thinking levels and preserves defau
 		input,
 	);
 	assert.equal("reasoning" in calls.at(-1).options, false);
+});
+
+test("provider setup forwards cancellation to auth and stops waiting for ignored abort", async () => {
+	const runtime = new ProviderRuntime({ chrome: createChrome() });
+	const controller = new AbortController();
+	let authSignal;
+	let started;
+	const authStarted = new Promise((resolve) => {
+		started = resolve;
+	});
+	runtime.models.checkAuth = (_provider, options) => {
+		authSignal = options?.signal;
+		started();
+		return new Promise(() => {});
+	};
+	const pending = runtime.complete(
+		{ provider: "openai", model: "gpt-5-mini" },
+		{ userPrompt: "Hello" },
+		{ signal: controller.signal },
+	);
+	await authStarted;
+	controller.abort();
+	let timer;
+	try {
+		await assert.rejects(
+			Promise.race([
+				pending,
+				new Promise((resolve) => {
+					timer = setTimeout(resolve, 100);
+				}),
+			]),
+			{ name: "AbortError" },
+		);
+		assert.equal(authSignal, controller.signal);
+	} finally {
+		clearTimeout(timer);
+	}
+});
+
+test("provider completion stops waiting when the SDK ignores abort", async () => {
+	const runtime = new ProviderRuntime({ chrome: createChrome() });
+	await runtime.credentials.modify("openai", async () => ({
+		type: "api_key",
+		key: "mock-secret",
+	}));
+	const controller = new AbortController();
+	let started;
+	const completionStarted = new Promise((resolve) => {
+		started = resolve;
+	});
+	let complete;
+	runtime.models.completeSimple = () => {
+		started();
+		return new Promise((resolve) => {
+			complete = resolve;
+		});
+	};
+	const pending = runtime.complete(
+		{ provider: "openai", model: "gpt-5-mini" },
+		{ userPrompt: "Hello" },
+		{ signal: controller.signal },
+	);
+	await completionStarted;
+	controller.abort();
+	let timer;
+	try {
+		await assert.rejects(
+			Promise.race([
+				pending,
+				new Promise((resolve) => {
+					timer = setTimeout(resolve, 100);
+				}),
+			]),
+			{ name: "AbortError" },
+		);
+	} finally {
+		clearTimeout(timer);
+		complete({
+			content: [{ type: "text", text: "Late success" }],
+			stopReason: "stop",
+		});
+	}
+});
+
+test("provider runtime aborts a real HTTP SSE body stalled after headers", async () => {
+	let closed;
+	const connectionClosed = new Promise((resolve) => {
+		closed = resolve;
+	});
+	const server = createServer((request, response) => {
+		request.resume();
+		request.on("end", () => {
+			response.writeHead(200, { "Content-Type": "text/event-stream" });
+			response.write(": connected\n\n");
+			response.on("close", closed);
+		});
+	});
+	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+	const controller = new AbortController();
+	let received;
+	const headersReceived = new Promise((resolve) => {
+		received = resolve;
+	});
+	let fetchSignal;
+	const runtime = new ProviderRuntime({
+		chrome: createChrome(),
+		async fetch(url, options) {
+			fetchSignal = options.signal;
+			const response = await globalThis.fetch(url, options);
+			received();
+			return response;
+		},
+	});
+	const api = createTranslationApi(runtime);
+	let timer;
+	try {
+		await runtime.credentials.modify(Settings.CUSTOM_PROVIDER, async () => ({
+			type: "api_key",
+			key: "mock-secret",
+		}));
+		const pending = api.requestTranslations({
+			settings: {
+				...Settings.DEFAULT_SETTINGS,
+				provider: Settings.CUSTOM_PROVIDER,
+				customBaseUrl: `http://127.0.0.1:${server.address().port}/v1`,
+				model: "stalled-model",
+			},
+			items: [{ id: "stalled-sse", kind: "subtitle", text: "Hello" }],
+			signal: controller.signal,
+		});
+		await headersReceived;
+		controller.abort(new DOMException("Batch deadline", "TimeoutError"));
+		await assert.rejects(
+			Promise.race([
+				pending,
+				new Promise((resolve) => {
+					timer = setTimeout(resolve, 100);
+				}),
+			]),
+			{ name: "TimeoutError" },
+		);
+		clearTimeout(timer);
+		assert.equal(fetchSignal.aborted, true);
+		await Promise.race([
+			connectionClosed,
+			new Promise((_resolve, reject) => {
+				timer = setTimeout(
+					() => reject(new Error("SSE connection stayed open")),
+					1000,
+				);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+		controller.abort();
+		server.closeAllConnections();
+		await new Promise((resolve) => server.close(resolve));
+		clearTranslationCache();
+	}
 });
 
 test("Meta models resolve browser endpoint permissions without exposing credentials", async () => {

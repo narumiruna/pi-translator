@@ -68,7 +68,7 @@ test("initialization fetches JSON3 and queues the current 60-second window", asy
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: true, cueCount: 8, queued: 3 },
+		{ available: true, cueCount: 8, queued: 3, sessionStatus: "active" },
 	);
 	assert.equal(new URL(fetches[0].url).searchParams.get("fmt"), "json3");
 	assert.deepEqual(fetches[0].init, { credentials: "include" });
@@ -130,7 +130,7 @@ test("progress refills an overlapping window without duplicate cue IDs", async (
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: true, queued: 2 },
+		{ available: true, queued: 2, sessionStatus: "active" },
 	);
 	assert.deepEqual(
 		enqueued[1].items.map((item) => item.text),
@@ -143,7 +143,7 @@ test("progress refills an overlapping window without duplicate cue IDs", async (
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: true, queued: 0 },
+		{ available: true, queued: 0, sessionStatus: "active" },
 	);
 });
 
@@ -184,7 +184,7 @@ test("prefetch queues every overlapping active cue for exact DOM matching", asyn
 			sessionId: "session-overlap",
 			tabId: 9,
 		}),
-		{ available: true, cueCount: 2, queued: 2 },
+		{ available: true, cueCount: 2, queued: 2, sessionStatus: "active" },
 	);
 	assert.deepEqual(
 		enqueued[0].items.map((item) => item.text),
@@ -249,7 +249,7 @@ test("a later refill can offer failed timed cues again", async () => {
 			sessionId: "session-retry",
 			tabId: 7,
 		}),
-		{ available: true, queued: 1 },
+		{ available: true, queued: 1, sessionStatus: "active" },
 	);
 	assert.equal(enqueued.length, 2);
 	assert.equal(enqueued[1].items[0].id, enqueued[0].items[0].id);
@@ -273,7 +273,7 @@ test("unavailable or malformed timed captions preserve fallback behavior", async
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: false, cueCount: 0, queued: 0 },
+		{ available: false, cueCount: 0, queued: 0, sessionStatus: "active" },
 	);
 	assert.equal(diagnostics.at(-1).stage, "prefetch-fallback");
 	assert.deepEqual(
@@ -283,7 +283,7 @@ test("unavailable or malformed timed captions preserve fallback behavior", async
 			sessionId: "session-2",
 			tabId: 7,
 		}),
-		{ available: false, cueCount: 0, queued: 0 },
+		{ available: false, cueCount: 0, queued: 0, sessionStatus: "active" },
 	);
 	assert.equal(diagnostics.length, 2);
 	assert.deepEqual(diagnostics.at(-1), {
