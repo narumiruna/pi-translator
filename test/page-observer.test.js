@@ -87,6 +87,7 @@ test("subtitle replacements rebind exact notes before cleanup and scheduling", (
 	const addedSource = createElement({ matches: selector });
 	const secondAddedSource = createElement({ matches: selector });
 	const observer = createPageObserver({
+		// biome-ignore lint/correctness/noComponentHookFactories: This is a DOM constructor stub, not a React component.
 		MutationObserver: function MutationObserver(callback) {
 			handleMutations = callback;
 			return {
@@ -217,6 +218,7 @@ test("subtitle text changes reset the source before translation is scheduled", (
 		},
 	};
 	const observer = createPageObserver({
+		// biome-ignore lint/correctness/noComponentHookFactories: This is a DOM constructor stub, not a React component.
 		MutationObserver: function MutationObserver(callback) {
 			handleMutations = callback;
 			return {

@@ -2,6 +2,8 @@
 
 ## GOTCHA
 
+- `pi-ai@1.3.0` renames the Azure provider module/factory/ID to `providers/azure`, `azureProvider`, and `azure`; the Responses API adapter ID remains `azure-openai-responses`. Update browser login and endpoint checks with the provider ID.
+
 - Playwright `fill()` on a newly loaded searchable provider can append to the initial label under CPU load. Click the input first, fill the query, and wait for the matching option before pressing Enter; reproduce with Chromium CPU throttling.
 
 - pi-ai ignores reasoning levels for models with `reasoning: false`; custom endpoints must opt in when a basic level is explicitly selected, while Default and unsupported saved levels must keep that flag false to avoid sending `reasoning.effort: "none"`.

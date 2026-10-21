@@ -273,6 +273,7 @@ function getElementPlainText(element) {
 		return "";
 	}
 
+	// biome-ignore lint/performance/useDomNodeTextContent: Prefer rendered text to preserve line breaks and exclude hidden descendants.
 	return normalizeSegmentText(element.innerText || element.textContent || "");
 }
 

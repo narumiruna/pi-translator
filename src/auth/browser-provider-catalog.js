@@ -1,6 +1,6 @@
 import { antLingProvider } from "@earendil-works/pi-ai/providers/ant-ling";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { azureOpenAIResponsesProvider } from "@earendil-works/pi-ai/providers/azure-openai-responses";
+import { azureProvider } from "@earendil-works/pi-ai/providers/azure";
 import { basetenProvider } from "@earendil-works/pi-ai/providers/baseten";
 import { cerebrasProvider } from "@earendil-works/pi-ai/providers/cerebras";
 import { cloudflareAIGatewayProvider } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway";
@@ -42,7 +42,7 @@ import { zaiCodingCnProvider } from "@earendil-works/pi-ai/providers/zai-coding-
 const BROWSER_PROVIDER_FACTORIES = Object.freeze([
 	antLingProvider,
 	anthropicProvider,
-	azureOpenAIResponsesProvider,
+	azureProvider,
 	basetenProvider,
 	cerebrasProvider,
 	cloudflareAIGatewayProvider,

@@ -117,7 +117,7 @@ function browserProvider(provider) {
 		},
 	};
 
-	if (provider.id === "azure-openai-responses") {
+	if (provider.id === "azure") {
 		return browserAzureProvider(browserCompatible);
 	}
 	if (provider.id === "google-vertex") {
@@ -185,7 +185,7 @@ function modelEndpointUrls(provider, model, credential) {
 		return [getGitHubCopilotBaseUrl(credential.access)];
 	}
 
-	if (provider.id === "azure-openai-responses") {
+	if (provider.id === "azure") {
 		const configured =
 			credential?.type === "api_key"
 				? credential.env?.AZURE_OPENAI_BASE_URL
