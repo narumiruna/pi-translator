@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "vitest";
 
+import { createPdfFixture } from "../e2e/lib/pdf-fixture.cjs";
+
 import {
 	analyzePdfPage,
 	removeRepeatedFurniture,
@@ -18,7 +20,9 @@ async function loadPdf(fileUrl, password) {
 	);
 	const task = getDocument({
 		verbosity: VerbosityLevel.ERRORS,
-		data: new Uint8Array(await readFile(fileUrl)),
+		data: new Uint8Array(
+			fileUrl instanceof Uint8Array ? fileUrl : await readFile(fileUrl),
+		),
 		isEvalSupported: false,
 		standardFontDataUrl: new URL(
 			"../node_modules/pdfjs-dist/standard_fonts/",
@@ -30,6 +34,34 @@ async function loadPdf(fileUrl, password) {
 	}
 	return { document: await task.promise, task };
 }
+
+test("navigation PDF fixture exposes six independently translatable pages", async () => {
+	const { document, task } = await loadPdf(createPdfFixture());
+	try {
+		assert.equal(document.numPages, 6);
+		for (let number = 1; number <= 6; number += 1) {
+			const page = await document.getPage(number);
+			const content = await page.getTextContent();
+			const blocks = analyzePdfPage({
+				documentId: "navigation",
+				items: content.items,
+				pageNumber: number,
+				pageWidth: 612,
+			});
+			assert.ok(blocks.length >= 8);
+			assert.match(
+				blocks.map((block) => block.text).join(" "),
+				new RegExp(`Navigation page ${number}`),
+			);
+			assert.equal(
+				blocks.some((block) => block.originalOnly),
+				false,
+			);
+		}
+	} finally {
+		await task.destroy();
+	}
+});
 
 test("project PDF fixture exposes three text pages in column order", async () => {
 	const { document, task } = await loadPdf(fixtureUrl);

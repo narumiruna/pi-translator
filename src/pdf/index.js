@@ -539,16 +539,7 @@ function setupPageObserver() {
 				return;
 			}
 			const pageNumber = Number(visible.target.dataset.pageNumber);
-			if (pageNumber !== state.currentPage) {
-				state.currentPage = pageNumber;
-				updateControls();
-				renderWindow(pageNumber).catch(showError);
-				queuePageWindow(pageNumber).catch(showError);
-				const translationPage = elements.translationPages.querySelector(
-					`[data-page-number="${pageNumber}"]`,
-				);
-				translationPage?.scrollIntoView({ block: "start" });
-			}
+			activatePage(pageNumber);
 		},
 		{ root: elements.sourceScroll, threshold: [0.2, 0.5, 0.8] },
 	);
@@ -874,11 +865,23 @@ function connectPort() {
 	port.postMessage({ type: Pdf.CLIENT_MESSAGE_TYPES.START, launchToken });
 }
 
-function navigateToPage(pageNumber) {
+function activatePage(pageNumber) {
 	const normalized = Math.max(1, Math.min(state.pageCount, pageNumber));
-	state.pageElements.get(normalized)?.scrollIntoView({ block: "start" });
+	if (normalized === state.currentPage) {
+		return;
+	}
 	state.currentPage = normalized;
 	updateControls();
+	renderWindow(normalized).catch(showError);
+	queuePageWindow(normalized).catch(showError);
+	elements.translationPages
+		.querySelector(`[data-page-number="${normalized}"]`)
+		?.scrollIntoView({ block: "start" });
+}
+
+function navigateToPage(pageNumber) {
+	activatePage(pageNumber);
+	state.pageElements.get(state.currentPage)?.scrollIntoView({ block: "start" });
 }
 
 async function setZoom(nextZoom) {

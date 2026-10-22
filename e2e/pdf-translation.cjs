@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 const assert = require("node:assert/strict");
+const { writeFile } = require("node:fs/promises");
 const path = require("node:path");
 
 const AxeBuilder = require("@axe-core/playwright").default;
+const { createPdfFixture } = require("./lib/pdf-fixture.cjs");
 
 const {
 	ROOT_DIR,
@@ -77,6 +79,240 @@ async function instrumentReaderCompletion(context) {
 	});
 }
 
+async function checkPageActivation(reader, pageNumber) {
+	await waitFor(
+		async () => {
+			const label = await reader.locator("#page-status").textContent();
+			const canvas = reader.locator(
+				`.pdf-page[data-page-number="${pageNumber}"] canvas`,
+			);
+			const blocks = reader.locator(
+				`.translation-page[data-page-number="${pageNumber}"] .translation-block`,
+			);
+			return (
+				label === `Page ${pageNumber} / 6` &&
+				(await canvas.count()) === 1 &&
+				(await blocks.count()) > 0 &&
+				(await reader
+					.locator(
+						`.translation-page[data-page-number="${pageNumber}"] .translation-block:not([data-state="ready"])`,
+					)
+					.count()) === 0
+			);
+		},
+		{
+			timeoutMs: REQUEST_TIMEOUT_MS,
+			timeoutMessage: `PDF page ${pageNumber} did not render and translate.`,
+		},
+	);
+	await waitFor(
+		() =>
+			reader.evaluate((number) => {
+				const pane = document.querySelector("#translation-scroll");
+				const destination = pane.querySelector(
+					`[data-page-number="${number}"]`,
+				);
+				return (
+					Math.abs(
+						destination.getBoundingClientRect().top -
+							pane.getBoundingClientRect().top -
+							8,
+					) < 3
+				);
+			}, pageNumber),
+		{ timeoutMessage: `Translation pane did not follow page ${pageNumber}.` },
+	);
+}
+
+async function testNavigationAndCancellation(runState, config, mockApiServer) {
+	const reader = await runState.context.newPage();
+	await reader.emulateMedia({ reducedMotion: "reduce" });
+	await reader.goto(
+		`chrome-extension://${runState.extensionId}/sidebar/index.html`,
+	);
+	await waitFor(async () =>
+		/Choose the local PDF/.test(
+			await reader.locator("#document-status").textContent(),
+		),
+	);
+	assert.equal(
+		await reader
+			.locator("#source-scroll")
+			.evaluate((pane) => getComputedStyle(pane).scrollBehavior),
+		"auto",
+		"Reduced motion must disable smooth scrolling.",
+	);
+	const requestsBefore = mockApiServer.getResponseRequestCount();
+	const idsBefore = mockApiServer.getResponseItemIds().length;
+	await reader.locator("#local-file").setInputFiles({
+		name: "navigation.pdf",
+		mimeType: "application/pdf",
+		buffer: createPdfFixture(),
+	});
+	await waitFor(
+		async () =>
+			(await reader
+				.locator(
+					'.translation-page[data-page-number="1"] .translation-block[data-state="ready"]',
+				)
+				.count()) > 0,
+	);
+	const requestCounts = [mockApiServer.getResponseRequestCount()];
+	for (const number of [2, 3, 4]) {
+		await reader.locator("#next-page").click();
+		await checkPageActivation(reader, number);
+		await waitFor(
+			async () =>
+				(await reader
+					.locator(
+						`.translation-page[data-page-number="${number + 2}"] .translation-block:not([data-state="ready"])`,
+					)
+					.count()) === 0,
+			{ timeoutMessage: "Navigation did not queue the new page window." },
+		);
+		requestCounts.push(mockApiServer.getResponseRequestCount());
+	}
+	assert.ok(
+		await reader.locator('.pdf-page[data-page-number="6"] canvas').count(),
+		"Next must render the new window, not only its label.",
+	);
+	await reader.locator("#previous-page").click();
+	await checkPageActivation(reader, 3);
+	assert.ok(
+		requestCounts.every(
+			(count, index) => index === 0 || count > requestCounts[index - 1],
+		),
+		"Each Next must queue the newly reached translation window.",
+	);
+	const blocks = await reader
+		.locator(".translation-block")
+		.evaluateAll((items) => items.map((item) => item.dataset.blockId));
+	const requestedIds = mockApiServer.getResponseItemIds().slice(idsBefore);
+	assert.deepEqual(
+		[...requestedIds].sort(),
+		[...blocks].sort(),
+		"Each block must reach the provider once.",
+	);
+	const completedRequestCount = mockApiServer.getResponseRequestCount();
+	await takeScreenshot(
+		reader,
+		config.artifactsDir,
+		"pdf-six-page-navigation.png",
+		false,
+	);
+
+	// Use ordinary scrolling as well as reduced-motion button navigation.
+	await reader.emulateMedia({ reducedMotion: "no-preference" });
+	await reader.locator("#source-scroll").evaluate((pane) => {
+		const target = pane.querySelector('[data-page-number="5"]');
+		pane.scrollTop +=
+			target.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+	});
+	await checkPageActivation(reader, 5);
+	assert.equal(
+		mockApiServer.getResponseRequestCount(),
+		completedRequestCount,
+		"Observer activation must not request completed blocks again.",
+	);
+	assert.ok(completedRequestCount > requestsBefore);
+
+	// Real SSE connections must close for replacement, cancel, and reader disconnect.
+	for (const action of ["replacement", "cancel", "disconnect"]) {
+		if (action === "disconnect") {
+			await reader.reload();
+			await waitFor(async () =>
+				/Choose the local PDF/.test(
+					await reader.locator("#document-status").textContent(),
+				),
+			);
+		}
+		mockApiServer.stallNextResponses(1);
+		const start = mockApiServer.getRequests().length;
+		await reader.locator("#local-file").setInputFiles({
+			name: `${action}.pdf`,
+			mimeType: "application/pdf",
+			buffer: createPdfFixture({ label: action, pageCount: 1 }),
+		});
+		await waitFor(
+			() =>
+				mockApiServer
+					.getRequests()
+					.slice(start)
+					.some((request) => request.stalled && request.finishedAt === null),
+			{ timeoutMessage: "PDF mock SSE did not stall." },
+		);
+		if (action === "replacement") {
+			await reader.locator("#local-file").setInputFiles({
+				name: "replacement-ready.pdf",
+				mimeType: "application/pdf",
+				buffer: createPdfFixture({
+					label: "Replacement ready",
+					pageCount: 1,
+				}),
+			});
+			await waitFor(
+				async () =>
+					(await reader
+						.locator('.translation-block[data-state="ready"]')
+						.count()) > 0,
+				{ timeoutMessage: "Replacement waited for canceled provider work." },
+			);
+		} else if (action === "cancel") {
+			await reader.locator("#cancel-translation").click();
+			await waitFor(async () =>
+				/cancelled/i.test(
+					await reader.locator("#document-status").textContent(),
+				),
+			);
+			const stalledIds = mockApiServer
+				.getRequests()
+				.slice(start)
+				.filter((request) => request.stalled)
+				.flatMap((request) => request.itemIds);
+			assert.ok(stalledIds.length > 0);
+			for (const id of stalledIds) {
+				assert.notEqual(
+					await reader
+						.locator(`[data-block-id="${id}"]`)
+						.getAttribute("data-state"),
+					"ready",
+					"Canceled stalled blocks must not render a late translation.",
+				);
+			}
+		} else {
+			await reader.close();
+		}
+		await waitFor(
+			() =>
+				mockApiServer
+					.getRequests()
+					.slice(start)
+					.filter((request) => request.stalled)
+					.every((request) => request.aborted && request.finishedAt !== null),
+			{ timeoutMessage: `PDF ${action} left the SSE transport open.` },
+		);
+	}
+	await writeFile(
+		path.join(config.artifactsDir, "pdf-reliability.json"),
+		JSON.stringify(
+			{
+				navigation: {
+					pageCount: 6,
+					requestCounts,
+					blockCount: blocks.length,
+					requestedIds,
+				},
+				requests: mockApiServer.getRequests(),
+			},
+			null,
+			2,
+		),
+	);
+	console.log(
+		"PDF six-page activation, unique requests, normal scrolling, and stalled SSE replacement/cancel/disconnect passed.",
+	);
+}
+
 async function main() {
 	const config = getConfig();
 	assert.equal(
@@ -95,6 +331,7 @@ async function main() {
 			requiredGlobals: true,
 		});
 
+		await testNavigationAndCancellation(runState, config, mockApiServer);
 		await instrumentReaderCompletion(runState.context);
 		const sourcePage = await runState.context.newPage();
 		const sourceUrl = `${server.origin}${PDF_PATH}`;
