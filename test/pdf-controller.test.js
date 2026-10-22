@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import {
 	createPdfController,
@@ -620,6 +620,7 @@ test("PDF controller resets document accounting when the reader changes files", 
 });
 
 test("PDF controller suppresses stale work after the document changes", async () => {
+	const requests = [];
 	let oldRequestSettled = false;
 	let releaseOldRequest;
 	const oldRequestGate = new Promise((resolve) => {
@@ -627,6 +628,7 @@ test("PDF controller suppresses stale work after the document changes", async ()
 	});
 	const harness = createHarness({
 		async requestTranslationsBatchedProgressive(request) {
+			requests.push(request);
 			const ids = request.chunks.flat().map((item) => item.id);
 			if (ids.includes("old-active")) {
 				await oldRequestGate;
@@ -702,8 +704,17 @@ test("PDF controller suppresses stale work after the document changes", async ()
 		),
 		true,
 	);
+	assert.equal(requests[0].signal.aborted, true);
+	assert.equal(requests[1].signal.aborted, false);
+	const messageCount = port.posted.length;
 	releaseOldRequest();
 	await waitFor(() => oldRequestSettled);
+	assert.equal(port.posted.length, messageCount);
+	assert.equal(
+		requests[1].signal.aborted,
+		false,
+		"Old completion must not abort the replacement.",
+	);
 });
 
 test("PDF controller accepts failed retries after a Port reconnect", async () => {
@@ -782,6 +793,131 @@ test("PDF controller cancellation prevents later queue work", async () => {
 		port.posted.some((message) => message.type === "translation-update"),
 		false,
 	);
+});
+
+for (const teardown of [
+	"cancel",
+	"disconnect",
+	"tab removal",
+	"document replacement",
+]) {
+	test(`PDF ${teardown} aborts active document work and ignores late callbacks`, async () => {
+		let request;
+		let release;
+		const gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const harness = createHarness({
+			async requestTranslationsBatchedProgressive(value) {
+				request = value;
+				await gate;
+				await value.onChunkResolved({
+					translations: [{ id: "old", translation: "Late" }],
+				});
+				return { successes: [], failures: [] };
+			},
+		});
+		const { port, started } = await openAndStart(harness);
+		port.onMessage.emit({
+			type: "queue",
+			sessionId: started.sessionId,
+			documentId: "document-1",
+			requestId: "active",
+			items: [{ id: "old", text: "Old source" }],
+		});
+		await waitFor(() => request);
+		try {
+			assert.ok(
+				request.signal instanceof AbortSignal,
+				"The provider must receive the document abort signal.",
+			);
+			if (teardown === "cancel")
+				port.onMessage.emit({ type: "cancel", sessionId: started.sessionId });
+			if (teardown === "disconnect") port.disconnect();
+			if (teardown === "tab removal") harness.controller.removeSessionByTab(77);
+			if (teardown === "document replacement")
+				port.onMessage.emit({
+					type: "document",
+					sessionId: started.sessionId,
+					documentId: "document-2",
+				});
+			await waitFor(() => request.signal.aborted);
+			release();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			assert.equal(
+				port.posted.some((message) => message.type === "translation-update"),
+				false,
+			);
+		} finally {
+			release();
+		}
+	});
+}
+
+test("PDF batch deadline aborts a stalled provider and releases queued work", async () => {
+	const requests = [];
+	const harness = createHarness({
+		async requestTranslationsBatchedProgressive(request) {
+			requests.push(request);
+			if (requests.length === 1) return new Promise(() => {});
+			await request.onChunkResolved({
+				translations: [{ id: "next", translation: "Recovered" }],
+			});
+			return { successes: [], failures: [] };
+		},
+	});
+	const { port, started } = await openAndStart(harness);
+	vi.useFakeTimers();
+	try {
+		for (const id of ["stalled", "next"]) {
+			port.onMessage.emit({
+				type: "queue",
+				sessionId: started.sessionId,
+				documentId: "document-1",
+				requestId: id,
+				items: [{ id, text: id }],
+			});
+			await vi.advanceTimersByTimeAsync(0);
+		}
+		assert.ok(requests[0].signal instanceof AbortSignal);
+		await vi.advanceTimersByTimeAsync(119_999);
+		assert.equal(requests[0].signal.aborted, false);
+		assert.equal(requests.length, 1);
+		await vi.advanceTimersByTimeAsync(1);
+		assert.equal(requests[0].signal.aborted, true);
+		assert.equal(
+			requests.length,
+			2,
+			"The next batch must not wait for the retired promise.",
+		);
+		assert.equal(requests[1].signal.aborted, false);
+		assert.ok(
+			port.posted.some(
+				(message) =>
+					message.type === "error" && message.failedIds.includes("stalled"),
+			),
+		);
+		assert.ok(
+			port.posted.some(
+				(message) =>
+					message.type === "batch-complete" && message.requestId === "next",
+			),
+		);
+		const count = port.posted.length;
+		await requests[0].onChunkResolved({
+			translations: [{ id: "stalled", translation: "Late" }],
+		});
+		assert.equal(port.posted.length, count);
+		await vi.advanceTimersByTimeAsync(120_000);
+		assert.equal(
+			requests[1].signal.aborted,
+			false,
+			"A completed batch must dispose its deadline.",
+		);
+	} finally {
+		vi.useRealTimers();
+		port.disconnect();
+	}
 });
 
 test("PDF errors redact URLs and authorization material", () => {

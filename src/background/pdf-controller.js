@@ -1,3 +1,7 @@
+import {
+	createRequestAbortScope,
+	TRANSLATION_BATCH_DEADLINE_MS,
+} from "../shared/abort.js";
 import { normalizeThinkingLevel } from "../shared/settings.js";
 import { translateItemsProgressively } from "../translation/progressive.js";
 
@@ -188,6 +192,7 @@ function createPdfController(options = {}) {
 			post(session, Pdf.pdfSessionCancelled({ sessionId: session.sessionId }));
 		}
 		session.cancelled = true;
+		session.documentController?.abort();
 		session.pendingBatches.length = 0;
 		session.sourceById.clear();
 		session.pendingIds.clear();
@@ -202,6 +207,8 @@ function createPdfController(options = {}) {
 			return;
 		}
 
+		session.documentController?.abort();
+		session.documentController = new AbortController();
 		session.documentId = documentId;
 		session.documentSequence += 1;
 		session.characterCount = 0;
@@ -234,6 +241,10 @@ function createPdfController(options = {}) {
 			}),
 		);
 
+		const abortScope = createRequestAbortScope(
+			session.documentController.signal,
+			TRANSLATION_BATCH_DEADLINE_MS,
+		);
 		const completedIds = [];
 		const batchIds = new Set(batch.items.map((item) => item.id));
 		try {
@@ -242,6 +253,7 @@ function createPdfController(options = {}) {
 				settings: session.settings,
 				items: batch.items,
 				maximumConcurrency: 5,
+				signal: abortScope.signal,
 				isCurrent: () => isCurrentBatch(session, batch),
 				onTranslations: async (translations) => {
 					if (!isCurrentBatch(session, batch)) {
@@ -316,6 +328,7 @@ function createPdfController(options = {}) {
 				);
 			}
 		} finally {
+			abortScope.dispose();
 			if (session.documentSequence === batch.documentSequence) {
 				for (const item of batch.items) {
 					session.pendingIds.delete(item.id);
@@ -465,6 +478,7 @@ function createPdfController(options = {}) {
 			cancelled: false,
 			characterCount: 0,
 			completedIds: new Set(),
+			documentController: null,
 			documentId: "",
 			documentSequence: 0,
 			failedIds: new Set(),
