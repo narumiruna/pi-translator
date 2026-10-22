@@ -295,3 +295,100 @@ These checks are separate from automated-plan completion:
 9. Restore the API, click **Try again**, and confirm the control is disabled during loading and the panel reaches the ready state
 10. Trigger two selection requests in quick succession and confirm a late result from the older request cannot replace the newer result or badge state
 11. Open `chrome://extensions/` and confirm translation is rejected safely without injecting UI
+
+## Reliability and security regression (2026-10-23)
+
+### Reproducible local checks
+
+Run the production checks and local browser fixtures without loading account configuration:
+
+```sh
+npm run check
+export PLAYWRIGHT_ENV_FILE=/dev/null
+export PLAYWRIGHT_HEADLESS=1
+export PLAYWRIGHT_MOCK_API=1
+export OPENAI_API_KEY=mock-api-key
+export OPENAI_MODEL=mock-model
+unset PLAYWRIGHT_USER_DATA_DIR
+node e2e/layout-regression.cjs
+npm run e2e:mock
+node e2e/page-lifecycle.cjs
+node e2e/page-source-revisions.cjs
+npm run e2e:options
+npm run e2e:github
+npm run e2e:pdf
+npm run e2e:youtube -- --fixture-only
+```
+
+The suites use temporary Chromium profiles and synthetic credentials.
+The page lifecycle suite includes a real 120-second wait; allow a 300-second command timeout.
+It dispatches through the packaged worker's registered Chrome action and context-menu Event bindings, not the translation automation message.
+This checks listener wiring but does not operate Chrome's physical toolbar or native context-menu UI.
+The layout suite exercises source runtime code; the extension suites load the production artifact.
+
+| Regression | Required evidence |
+| --- | --- |
+| Long text packing | The 7,898-character, 1,001-word unit fixture produces two bounded chunks and reconstructs the source exactly; IDs, placeholders, and progressive merge remain correct. |
+| Superseded startup | Toolbar and context-menu paths retain the replacement session after delayed old extraction success or failure; replacement settings failure also retires the aborted startup's own session. |
+| Changed source | A to B to C changes while A is active produce only a C ready note, after either old success or failure, without scrolling or overlapping same-source requests. |
+| Session message ownership | Old session IDs cannot render, add placeholders, clear placeholders, or deactivate the replacement; unrelated selection setup failures leave a page session active. |
+| Administrative boundary | Content-script senders and denied endpoint permissions produce no translation call; actual Chrome content contexts cannot read or write trusted local or sync storage. |
+| PKCE | Synthetic exchanges verify independent state, the S256 challenge, callback forms, mismatches, missing structured state, and cancellation; no real account is used. |
+| Cancellation | Reload and close terminate page SSE transports; PDF replacement, Cancel, and disconnect terminate their stalled transports without affecting replacement work. |
+| Batch deadline | Five actual stalled page requests close after 120 seconds, their queue slots are released, and the sixth source translates; subtitle requests keep their existing 30-second deadline. |
+| Settings quota | Real Chrome accepts 8,192-byte items and rejects 8,193-byte items with ASCII, CJK, and emoji; oversized drafts fail before a write, retain edits, and do not overwrite saved settings. |
+| PDF navigation | A six-page fixture renders and translates page 4 after three Next actions, returns with Previous, and synchronizes both panes under computed instant scrolling; normal scrolling and repeated observer events do not duplicate provider items. |
+| Authentication dialog | Initial focus, Tab and Shift+Tab containment, Escape/Cancel, focus restoration, background isolation, and secret cleanup pass for key, method, and synthetic account flows in light/dark, narrow, and reduced-motion modes. |
+
+### Verification evidence
+
+The implementation baseline passed 466 tests and the original Options UI suite.
+Each defect received a failing regression before its fix.
+The complete implementation passes 583 unit tests, Biome checks, module syntax checks, the production build, and artifact verification.
+The packaged suites listed above passed locally with mock providers.
+The PDF navigation fixture contains 48 blocks across six pages; navigation reaches all 48 provider item IDs without duplicates.
+The Options dialog checks also exposed a solid-button contrast failure; its primary actions now use the existing high-contrast treatment.
+One delegated lifecycle run was interrupted with exit 137 before its deadline check finished; it was not counted as passing.
+The same full lifecycle suite subsequently passed on the final artifact under a direct 300-second runner, including the actual 120-second deadline.
+No real provider account, paid API, public YouTube live smoke, or release publication was used for this work.
+
+Before-change Options captures are under `e2e-artifacts/reliability-before/`.
+After-change local captures are under `e2e-artifacts/reliability-options-after/` and `e2e-artifacts/pdf-reliability/`.
+CI produces the equivalent captures in its `vibe-translator-chrome` artifact under `e2e-artifacts/`, including `options-auth-api-key-light.png`, `options-auth-method-dark.png`, and `pdf-six-page-navigation.png`.
+Screenshots and binary fixtures generated by these tests are not committed.
+
+### Artifact review
+
+The reviewed unpacked artifact remains below the existing 4,100,000-byte budget.
+The current total is 4,082,248 bytes; no budget was increased.
+
+| Artifact group | Unpacked bytes | Existing budget |
+| --- | ---: | ---: |
+| Background service worker | 1,247,575 | 1,450,000 |
+| Options files | 788,220 | 950,000 |
+| PDF reader and standalone worker | 1,656,080 | 1,700,000 |
+| Complete extension | 4,082,248 | 4,100,000 |
+
+The build still reports the existing background/PDF-worker performance warnings and PDF `chrome.tabs` compatibility warning.
+The PDF reader only uses `chrome.tabs.create`; no broad `tabs` permission was added to suppress that warning.
+The largest retained payloads are the streaming provider SDK/catalog background bundle, the PDF.js worker, Radix component CSS, and the PDF.js reader.
+Their owners are `src/auth/browser-apis.js`, `scripts/browser-sdk-rules.mjs`, the Options stylesheet imports, and `src/pdf/index.js`.
+A separate optimization must measure dependency contributions and cold-start timing before changing these payloads.
+These size checks do not establish a startup-speed improvement.
+
+### External acceptance and release restrictions
+
+- **Anthropic account owner:** With legitimate account access and consent to sign in, test the candidate's manual OAuth handoff, cancellation, and credential refresh as specified in [Authentication and providers](AUTHENTICATION.md).
+  - Expected result: independent state is accepted, refresh succeeds, and cancellation stores no credential.
+  - Unverified behavior: real Anthropic authorization and token-service compatibility.
+  - Release restriction: do not release the changed Anthropic flow before this check passes; do not share secrets or callback URLs as evidence.
+- **Authorized live-provider tester and CI maintainer:** Use approved API access and a legitimately accessible public video to complete the existing [Remaining live checks](#remaining-live-checks).
+  - Expected result: continued translation or a bounded, actionable failure.
+  - Unverified behavior: provider latency, account limits, public YouTube runtime behavior, and provider-side billing termination.
+  - Release restriction: local abort tests do not prove a refund, live-provider soak, or public-page CI access; do not bypass bot checks.
+- **UI maintainer:** With the candidate loaded through Chrome's native extension UI, inspect the retained captures, operate the physical toolbar/context menu, and perform any required screen-reader or subjective visual review.
+  - Expected result: readable dialogs and correct native action access.
+  - Unverified behavior: physical browser UI operation and real screen-reader announcements are not established by DOM, Event-binding, or axe checks.
+  - Release restriction: do not describe those native or subjective checks as completed without separate evidence.
+
+Local implementation completion does not establish external product acceptance or release readiness.
