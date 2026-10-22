@@ -1,43 +1,204 @@
 # Repository Guidelines
 
+## Language and Terminology
+
+- Follow ASD-STE100 (Simplified Technical English) for English technical prose when applicable.
+  - Use approved vocabulary and sentence structures where practical.
+  - Preserve technical accuracy when ASD-STE100 conflicts with established terminology.
+- Keep proper nouns and technical terms in English.
+- Use terminology consistently throughout the response.
+
+## Technical Documentation
+
+- Make rules specific, actionable, and verifiable.
+- Use indented sub-items for rules that depend on a parent rule.
+- Put each prose sentence on a separate source line.
+- Use Mermaid syntax for diagrams when a diagram improves clarity.
+- Prefer concrete explanations and examples over abstract descriptions.
+- Do not add diagrams, examples, or sections that provide no useful information.
+
 ## Project Structure & Module Organization
 
-This repository is a bundled Manifest V3 Chrome extension built with Extension.js. Source lives in `src/`: `background/` owns listeners and orchestration; `content.js` and `content/` own lifecycle, extraction, and rendering; `translation/` owns OpenAI-compatible requests and chunking; and `shared/` owns settings and cross-context contracts. The options UI is in `src/options/`. Generated artifacts live in `dist/` and must not be edited. Tests are in `test/`, with manual QA notes in `docs/TESTING.md`.
+- This repository is a bundled Manifest V3 Chrome extension built with Extension.js.
+- Source lives in `src/`: `background/` owns listeners and orchestration; `content.js` and `content/` own lifecycle, extraction, and rendering; `translation/` owns OpenAI-compatible requests and chunking; and `shared/` owns settings and cross-context contracts.
+- The options UI is in `src/options/`.
+- Generated artifacts live in `dist/` and must not be edited.
+- Tests are in `test/`, with manual QA notes in `docs/TESTING.md`.
 
 ## Build, Test, and Development Commands
 
 - `just check`: runs module syntax checks, unit tests, a production build, and artifact verification.
 - [UNREVIEWED] `just test`: runs the Vitest suite via `npm test`; use `npm test -- test/api.test.js` to run one test file.
 - `just zip`: creates and verifies the versioned Extension.js Chrome Web Store zip.
-- `just clean`: removes generated `chrome-translator-*.zip` archives.
+- `just clean`: removes `dist/chrome`, `dist/firefox`, `chrome-translator-*.zip`, and `vibe-translator-*.zip`.
 - When code changes are made, run `biome format --write && biome lint --write`.
-
-Use `npm run dev` for development. For manual production checks, run `npm run build`, then use **Load unpacked** on `dist/chrome`.
+- Use `npm run dev` for development.
+- For manual production checks, run `npm run build`, then use **Load unpacked** on `dist/chrome`.
 
 ## Coding Style & Naming Conventions
 
-Use plain JavaScript and keep modules focused; avoid adding dependencies unless there is a concrete need. Follow existing style: 2-space indentation, semicolons, camelCase for variables/functions, and concise imperative helper names such as `renderPageTranslationUpdates`. Keep files bounded and split logic before a file becomes difficult to navigate. Prefer data attributes like `data-translate-*` for extension-owned DOM markers.
+- Use plain JavaScript; add dependencies only when required by the requested change.
+- Use 2-space indentation, semicolons, camelCase names, and imperative helper names such as `renderPageTranslationUpdates`.
+- Give each source file one main responsibility.
+  - Split logic when it can be changed or tested independently.
+- Prefer data attributes such as `data-translate-*` for extension-owned DOM markers.
 
 ## Testing Guidelines
 
 - [UNREVIEWED] Unit tests use Vitest; add or update tests in `test/*.test.js` when changing chunking, storage validation, masking, or merge behavior, and prefer targeted fixture-based cases over broad mocks.
-- For UI and injection changes, also run the manual checklist in [docs/TESTING.md](/home/narumi/workspace/chrome-translator/docs/TESTING.md).
+- For UI and injection changes, also run the manual checklist in [docs/TESTING.md](docs/TESTING.md).
 
 ## Commit & Pull Request Guidelines
 
-Match the current history: short imperative subjects such as `Add OpenAI-compatible page translator extension` or `Improve progressive page translation rendering`. Keep commits scoped to one change. For pull requests, include:
-
-- a brief problem/solution summary
-- test evidence (`just check`)
-- screenshots or a short recording for rendering/UI changes
-- notes about permission, API, or domain-behavior changes
+- Use Conventional Commit subjects: `<type>[(<scope>)][!]: <description>`.
+- Keep each commit scoped to one change.
+- Include the following in pull requests:
+  - A brief problem and solution summary.
+  - Test evidence from `just check`.
+  - Screenshots or a short recording for rendering or UI changes.
+  - Notes about permission, API, or domain-behavior changes.
 
 ## Security & Configuration Tips
 
-Never hardcode API keys or commit real credentials. Keep API access constrained to the configured base URL origin, and preserve the current behavior of skipping unsupported or risky pages rather than forcing translation.
+- Never hardcode API keys or commit real credentials.
+- Keep API access constrained to the configured base URL origin, and preserve the current behavior of skipping unsupported or risky pages rather than forcing translation.
 
-## MEMORY.md
+## Known pitfalls
 
-- `MEMORY.md` is not auto-loaded. Check it before non-trivial debugging or design work when prior project context may matter.
-- Keep entries short and reusable. Use `GOTCHA` for recurring pitfalls and `TASTE` for stable preferences.
-- After a non-trivial error or discovery, adding one concise entry if it will help future work.
+- [UNREVIEWED] GitHub issue comments use `shared__` timeline wrappers that also match `[class*="share"]`.
+  - Match share-control class delimiters (`share-`, `share_`) in both unsupported element and ancestor selectors so these wrappers do not exclude comment prose.
+- `pi-ai@1.3.0` renames the Azure provider module/factory/ID to `providers/azure`, `azureProvider`, and `azure`; the Responses API adapter ID remains `azure-openai-responses`.
+  - Update browser login and endpoint checks with the provider ID.
+- Playwright `fill()` on a newly loaded searchable provider can append to the initial label under CPU load.
+  - Click the input first, fill the query, and wait for the matching option before pressing Enter; reproduce with Chromium CPU throttling.
+- pi-ai ignores reasoning levels for models with `reasoning: false`; custom endpoints must opt in when a basic level is explicitly selected, while Default and unsupported saved levels must keep that flag false to avoid sending `reasoning.effort: "none"`.
+- Anthropic SDK 0.129 exports `Anthropic`, `Beta`, and `Messages` as classes inside exported IIFEs, not top-level class declarations; the browser SDK trimmer must inspect the wrapper body and remove unused static resources there too.
+- `pi-ai@1.0.0` adds Meta text models and classifier-only TypeSafe; browser catalog coverage must compare providers with nonempty `getModels()` rather than every built-in provider.
+- Symptom: retranslating a page throws `ReferenceError: shouldTranslateText is not defined` even though the first translation succeeded.
+  - Cause: the fallback text walker in `src/content.js` referenced an analyzer helper without destructuring it from `createSourceAnalyzer`; assert the background response on repeat translation, not just existing note styling.
+- PDF.js 6 requires native `Map.prototype.getOrInsertComputed` and removes `PageViewport.convertToViewportRectangle`; use `convertToViewportPoint` for both box corners and run the packaged PDF regression when upgrading.
+- Full `pi-ai` SDK entrypoints retain unused SDK resources and duplicate catalog metadata.
+  - Keep `scripts/browser-sdk-rules.mjs` streaming-only and catalog metadata lossless; validate the compiled SDK fixtures before upgrading rather than raising artifact budgets.
+- Extension.js bundles additional HTML only when the manifest references it; the PDF reader uses `side_panel.default_path`, emits under `sidebar/`, and emits its PDF worker as one root JavaScript chunk that build verification must include.
+- During in-flight page translation, `chrome.tabs.sendMessage` can fail when the tab reloads, closes, or loses its content script; treat this as normal session teardown instead of logging a hard error.
+- If `just` is unavailable, run `npm run check` or `npm test` directly; unit tests use Vitest, not `node --test`.
+- Symptom: `just` recipes expand `$$name` to a PID plus literal text.
+  - Cause: unlike Make, just recipes pass `$name` directly to the shell.
+  - Fix: use `$name` and `$(...)` in recipes.
+- Chrome context menu click handlers do not expose page click coordinates, so selection-adjacent UI should anchor to the current DOM selection range instead.
+- Symptom: `Cannot create item with duplicate id ...` runtime errors during menu setup.
+  - Cause: `chrome.contextMenus.create`/`removeAll` need callback-wrapped sequencing and `runtime.lastError` consumption.
+  - Fix: use the existing context menu promise helpers instead of raw `await chrome.contextMenus.*`.
+- For fixed overlays that switch from corner anchoring to explicit `top`/`left` positioning, also clear the opposite edges with `right: auto` and `bottom: auto`; otherwise the box can stretch to the viewport edge.
+- When a message payload adds new UI state like selection anchors or display mode, verify those fields are forwarded through every render wrapper, not just the background-to-content send.
+- Symptom: a dismissed or newer selection panel is replaced by a late translation result.
+  - Cause: asynchronous selection requests are not scoped to panel state.
+  - Fix: carry request IDs through every panel message and ignore stale or dismissed results.
+- Reusing a Playwright Chromium persistent profile after a crashed run can leave `Singleton*` lock files behind; clear them before the next `launchPersistentContext` or Chromium may exit immediately.
+- Chrome for Testing may store unpacked extension metadata in `Secure Preferences`, making direct host-permission seeding unreliable.
+  - For extension e2e, load a temporary copy of the extension manifest with required `host_permissions` instead of editing profile preferences.
+- Symptom: X/Twitter post pages show no translatable text or cannot render a note.
+  - Cause: tweet bodies may be either `div[data-testid="tweetText"]` or `article[data-tweet-id] div[dir="auto"].whitespace-pre-wrap`, and X may wrap them in an identity CSS transform.
+  - Fix: treat tweet text variants as readable direct note targets and allow identity transforms in note insertion checks.
+- Symptom: Threads post pages show no inline page translations.
+  - Cause: post bodies are `div[lang]` blocks with `span[dir="auto"]`, include a nested native `Translate` button, and may sit inside a `perspective: 1px` scroll region.
+  - Fix: treat those language blocks as social text, skip interactive descendants during extraction, and do not treat ancestor perspective alone as unsafe for note insertion.
+- Symptom: scrolling sometimes does not queue newly visible paragraphs.
+  - Cause: element-level `scroll` events from nested overflow containers do not bubble to a normal window listener.
+  - Fix: register the window scroll listener in capture mode while keeping it passive.
+- Symptom: third-party comments such as Disqus stay untranslated.
+  - Cause: cross-origin iframe DOM is isolated from the top content script and source IDs collide across frame-local sessions.
+  - Fix: request only site-profile-declared frame origins, inject per frame, and route extraction/rendering through frame-aware sessions.
+- Symptom: Disqus E2E stalls with all accepted comments translated but one link-heavy paragraph intentionally skipped as UI.
+  - Cause: the test counts raw DOM paragraphs instead of extractor-approved sources.
+  - Fix: compare ready notes with `data-ot-source-id` comments while independently requiring coverage of all but the one known UI-only paragraph.
+- Symptom: user-sized previews look viewport-safe but are clipped on narrow options pages.
+  - Cause: explicit child widths contribute to CSS Grid intrinsic sizing while the outer panel hides overflow.
+  - Fix: set `min-width: 0` through the grid chain and express preview width as `min(configured-width, 100%)`; assert child bounds, not only document scroll width.
+- Symptom: later Schiit FAQ and guide entries stay untranslated.
+  - Cause: Schiit article bodies switch from semantic `p` blocks to direct child `div` blocks.
+  - Fix: keep the Schiit article profile rooted at the enclosing `.pad` (so headings remain included) and treat `.body` direct `div` children as explicit prose/direct note targets.
+- Symptom: an extension-owned button inside YouTube appears but cannot be clicked.
+  - Cause: relying on only a direct listener fails after YouTube clones the control, while relying on only delegated capture can conflict with other page or extension event handlers.
+  - Fix: keep both direct and delegated click paths, deduplicate each event, and resolve the current control from the event target.
+- Symptom: the YouTube subtitle button receives clicks but never becomes active in the installed extension while E2E passes.
+  - Cause: E2E injected a temporary YouTube host permission that production `manifest.json` lacked, so background tab access and main-world caption activation could fail only in production.
+  - Fix: declare YouTube hosts in `host_permissions` and run YouTube E2E without a test-only YouTube permission.
+- Symptom: YouTube subtitle startup failures are indistinguishable from unrelated YouTube or uBlock console messages, and rapid caption events remove the root cause from the report.
+  - Fix: show a player-local diagnostics panel with pause/copy controls, retain the first notable failure by stage, and include a redacted pipeline diagnosis.
+- Symptom: YouTube diagnostics show an active session and visible caption characters, but no translation renders.
+  - Cause: extraction targeted the optional `.captions-text` wrapper instead of the native `.ytp-caption-segment` leaves present across player variants.
+  - Fix: use caption segments as direct extraction and note-insertion targets.
+- Symptom: YouTube diagnostics report extraction, queueing, and API success but `rendered 0; stale 0; missing target 0`.
+  - Cause: YouTube replaces caption segment nodes after queueing, removing their source IDs before the result returns.
+  - Fix: safely rebind only results whose source-text snapshot exactly matches a currently visible caption segment, then render normally.
+- Symptom: prefetched YouTube subtitles still render slightly late when YouTube updates a caption segment in place.
+  - Cause: translation scheduling runs before the delayed stale-source reset, so the cache lookup still sees the old source as translated.
+  - Fix: reset changed subtitle sources synchronously before scheduling while retaining the normal debounce for uncached text.
+- Symptom: a translated YouTube note is immediately replaced by cumulative native text.
+  - Cause: YouTube can progressively rewrite or rebuild caption segments and remove extension note siblings in the same mutation batch.
+  - Fix: retain the bound translation through unique prefix extensions, recover detached notes from the batch, move them to matching replacement segments, then reconcile.
+- Symptom: one YouTube cue gets duplicate translated notes when timed prefetch and visible fallback finish together.
+  - Cause: a late result overwrites a caption segment already claimed by another source ID.
+  - Fix: adopt the claimed source ID for the matching result instead of replacing that identity.
+- Symptom: YouTube diagnostics report `trackCount: 0` even though main-world player responses expose a timed track.
+  - Cause: isolated-world content code cannot reliably read page-owned player globals.
+  - Fix: resolve tracks in the background’s main-world probe and forward only sanitized status.
+- Symptom: YouTube reports `timedTrackAvailable: true` but prefetch remains unavailable.
+  - Cause: that flag only proves a Web player `baseUrl` field exists; current raw timed-text URLs can return HTTP 200 with an empty body while native requests add runtime proof/client parameters.
+  - Fix: observe a bounded set of native timed-text resource URLs before enabling captions, validate the current track in the background, fetch it with YouTube credentials, and retry the advertised URL before visible fallback.
+- Symptom: progressive YouTube captions create repeated API successes with only superseded results and no ready note.
+  - Cause: native text updates can outpace visible fallback responses, including updates that retain one source identity.
+  - Fix: prefer one unique active timed-prefix cue, keep one fallback request per structural slot with only its latest snapshot pending, and render safely related prefix results provisionally so frequent updates do not prevent rendering.
+- Symptom: React options E2E changes a field in the DOM but the controlled value does not persist.
+  - Cause: direct property assignment can update React's value tracker before the synthetic event runs.
+  - Fix: prefer Playwright user actions, or invoke the native prototype setter before dispatching the test event.
+- Symptom: editing one invalid options field makes untouched invalid controls appear valid.
+  - Cause: clearing the complete validation field set on every edit removes unrelated ARIA error state.
+  - Fix: clear only the edited field while preserving other validation results.
+- Symptom: importing the complete Radix Themes stylesheet adds unused layout utilities to the options artifact.
+  - Fix: import the public `tokens.css` and `components.css` bundles separately when no Radix layout utilities are used, then enforce options and total artifact budgets.
+- When debugging the user's Chrome, use the user-selected Chrome DevTools connection.
+  - Use `http://host.docker.internal:9222/` only when the user explicitly selects it.
+- Symptom: translating a page immediately after `DOMContentLoaded` fails with `Receiving end does not exist`.
+  - Cause: Extension.js programmatic injection resolves before its generated `document_idle` wrapper mounts the content listener.
+  - Fix: poll the content-script ping after injection until the generated bundle reports ready.
+- Symptom: Findy news pages report already-translated offscreen content but render no notes.
+  - Cause: generic root scoring can select a related-news `article` card instead of the `.p-single__wrap` news body.
+  - Fix: keep the Findy profile rooted at `.p-single__wrap`.
+- Symptom: Reddit post pages translate only one long comment thread.
+  - Cause: comments are `<details role="article">`, so generic root scoring can select one thread instead of the discussion.
+  - Fix: keep the Reddit profile rooted at `main`.
+- Symptom: an inline translation appears beside, above, or outside its source in a CSS Grid article.
+  - Cause: a sibling note is independently auto-placed, and copied grid coordinates fail for auto placement, explicit rows, and responsive layouts.
+  - Fix: append a block-styled `span` note inside the source grid item so both share one responsive grid placement.
+- Symptom: Carmina leather pages translate only the hero heading and place its note over the banner.
+  - Cause: the primary description is a `div.html-output`, while the semantic heading prevents fallback extraction.
+  - Fix: root the Carmina profile at `#module-special-category-header` and target its `.html-output` directly.
+- Symptom: reduced-motion preview animations still run.
+  - Cause: `.has-fade` and Radix `[data-state="open"]` selectors outrank the media-query reset.
+  - Fix: match their specificity in reduced-motion rules and assert computed `animationName`, not only the emulated preference.
+- Symptom: provider responses fail with `Response JSON is missing translations array.`
+  - Cause: the provider-neutral `completeSimple` path sends prompts without the old Responses API JSON schema, while the prompt only referred to a “provided schema.”
+  - Fix: spell out the required `translations` JSON shape in the default prompt and tolerate a valid unwrapped single translation item.
+- Keep translation notes inside unconstrained flow sources, including CSS Grid items and items in row flex containers.
+  - Heading sibling notes become extra flex items and can reduce Anthology role-page prose to 20 px.
+  - For sources with internal flex/grid layout or clipping, use a sibling note under a safe flow or column-flex parent.
+  - Hide or skip notes when no safe placement exists.
+  - Reconcile note placement after resize.
+  - Use `computedStyleMap().get("height")` to distinguish `auto` from fixed height.
+    - `getComputedStyle().height` returns used pixels for both.
+    - A non-auto/content vertical flex basis can also prevent growth.
+- YouTube recovery E2E must select the extension worker by URL, then verify stopped/running events and loss of a worker-global marker; YouTube can register its own worker after it, and Chrome can reuse worker target/version IDs after restart.
+  - Synthetic MAIN-world video property overrides are not visible in the content-script isolated world; set native media time/rate instead.
+
+## UI design rules
+
+- Default selection translation panels to compact, tooltip-sized cards.
+  - Allow panels to expand for long content.
+- Default inline translations to a compact, neutral secondary line with a thin accent and an explicit translation label.
+  - Avoid large card backgrounds that dominate the host page.
+- Keep inline translation appearance and selection panel appearance independently configurable through presets and validated controls.
+  - Do not accept arbitrary CSS.
+- Keep extension-owned interface copy in English.
+  - Translated content and user-entered target-language values may use other languages.
