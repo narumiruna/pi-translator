@@ -494,10 +494,9 @@ function OptionsApp() {
 					"Settings saved. Provider access will be requested when needed.",
 				tone: "green",
 			});
-		} catch (_error) {
+		} catch (error) {
 			setBanner({
-				message:
-					"Settings could not be saved. Check permissions and try again.",
+				message: `Settings could not be saved. ${error.message || "Try again."}`,
 				tone: "red",
 			});
 		} finally {
