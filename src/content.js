@@ -844,6 +844,20 @@ export function createContentRuntime(options = {}) {
 		}
 
 		if (
+			message.payload?.sessionId &&
+			message.payload.sessionId !== pageState.pageTranslation.sessionId &&
+			[
+				MessageTypes.RENDER_PAGE_TRANSLATION_UPDATES,
+				MessageTypes.RENDER_PAGE_PLACEHOLDERS,
+				MessageTypes.CLEAR_PAGE_PLACEHOLDERS,
+				MessageTypes.CLEAR_PENDING_TRANSLATIONS,
+			].includes(message.type)
+		) {
+			sendResponse({ ok: false, stale: true });
+			return;
+		}
+
+		if (
 			SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
 			[
 				MessageTypes.RENDER_PAGE_TRANSLATION_UPDATES,

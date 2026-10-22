@@ -142,11 +142,14 @@ class ProviderRuntime {
 	}
 
 	async doInitialize() {
-		if (this.chrome?.storage?.local?.setAccessLevel) {
-			await this.chrome.storage.local.setAccessLevel({
-				accessLevel: "TRUSTED_CONTEXTS",
-			});
-		}
+		await Promise.all(
+			["local", "sync"].map(async (name) => {
+				const area = this.chrome?.storage?.[name];
+				if (area?.setAccessLevel) {
+					await area.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+				}
+			}),
+		);
 		await this.migrateLegacySettings();
 		this.initialized = true;
 	}

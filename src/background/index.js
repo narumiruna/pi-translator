@@ -16,6 +16,8 @@ import { createBackgroundPlatform } from "./platform.js";
 
 const logger = createLogger("background");
 const providerRuntime = new ProviderRuntime({ chrome, settingsApi: Settings });
+const runtimeReady = providerRuntime.initialize();
+runtimeReady.catch(() => logger.error("runtime-initialization-failed"));
 const translationApi = Api.createTranslationApi(providerRuntime);
 const handleAuthPort = createAuthPortHandler({
 	runtime: providerRuntime,
@@ -58,8 +60,24 @@ async function translateTab(tab) {
 	return controller.translatePage(tab);
 }
 
-function handleFailure(tab, error) {
-	if (!tab?.id) {
+const actionRequests = new Map();
+
+async function runAction(tab, operation) {
+	const request = {};
+	actionRequests.set(tab?.id, request);
+	const isCurrent = () => actionRequests.get(tab?.id) === request;
+	try {
+		await runtimeReady;
+		if (isCurrent()) await operation();
+	} catch (error) {
+		await handleFailure(tab, error, isCurrent);
+	} finally {
+		if (isCurrent()) actionRequests.delete(tab?.id);
+	}
+}
+
+function handleFailure(tab, error, isCurrent) {
+	if (!tab?.id || !isCurrent()) {
 		return Promise.resolve();
 	}
 
@@ -67,12 +85,11 @@ function handleFailure(tab, error) {
 		error: error?.message || String(error),
 		tabId: tab.id,
 	});
-	controller.removePageTranslationState(tab.id);
-	return chrome.tabs
-		.sendMessage(tab.id, Messages.clearPendingTranslations())
-		.catch(() => {})
-		.then(() => platform.sendToast(tab.id, error.message, "error"))
-		.then(() => platform.setBadge(tab.id, "!"));
+	// Page startup cleanup is session-scoped in the controller.
+	// An unrelated selection/configuration failure must not stop a page session.
+	return platform
+		.sendToast(tab.id, error.message, "error")
+		.then(() => isCurrent() && platform.setBadge(tab.id, "!"));
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -89,11 +106,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.action.onClicked.addListener(async (tab) => {
 	logger.info("action-clicked", { tabId: tab?.id });
-	try {
-		await translateTab(tab);
-	} catch (error) {
-		await handleFailure(tab, error);
-	}
+	await runAction(tab, () => translateTab(tab));
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -102,7 +115,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 		menuItemId: info.menuItemId,
 		tabId: tab?.id,
 	});
-	try {
+	await runAction(tab, async () => {
 		if (info.menuItemId === "translate-page") {
 			await translateTab(tab);
 		} else if (info.menuItemId === "open-pdf-reader") {
@@ -114,13 +127,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 				info.frameId,
 			);
 		}
-	} catch (error) {
-		await handleFailure(tab, error);
-	}
+	});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 	if (changeInfo.status === "loading") {
+		actionRequests.delete(tabId);
 		controller.removePageTranslationState(tabId);
 		platform.setBadge(tabId, "");
 		logger.debug("tab-loading", { tabId });
@@ -128,6 +140,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+	actionRequests.delete(tabId);
 	controller.removePageTranslationState(tabId);
 	pdfController.removeSessionByTab(tabId);
 	logger.debug("tab-removed", { tabId });
@@ -153,8 +166,8 @@ chrome.permissions.onRemoved.addListener((permissions) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-	controller
-		.handleRuntimeMessage(message, sender)
+	runtimeReady
+		.then(() => controller.handleRuntimeMessage(message, sender))
 		.then((result) => sendResponse(result))
 		.catch((error) => {
 			logger.error("message-failed", {

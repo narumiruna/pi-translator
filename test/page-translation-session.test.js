@@ -346,6 +346,170 @@ test("page translation queue deduplicates pending item ids", async () => {
 	assert.deepEqual(processed, ["a", "b"]);
 });
 
+for (const outcome of ["success", "failure"]) {
+	for (const revisions of [["B"], ["B", "C"]]) {
+		test(`page queue retains latest revision ${revisions.join(" to ")} after old ${outcome}`, async () => {
+			const processed = [];
+			const settlements = [];
+			const queue = createPageTranslationQueue({
+				concurrency: 5,
+				processBatch({ items }) {
+					processed.push(items[0].text);
+					return new Promise((resolve, reject) =>
+						settlements.push({ resolve, reject }),
+					);
+				},
+			});
+			const session = queue.create(20, {});
+			queue.enqueue(20, session.sessionId, [
+				{ id: "source", text: "A", kind: "paragraph" },
+			]);
+			await nextTick();
+			for (const text of revisions) {
+				queue.enqueue(20, session.sessionId, [
+					{ id: "source", text, kind: "paragraph" },
+				]);
+			}
+			assert.deepEqual(
+				processed,
+				["A"],
+				"the same source must not run concurrently",
+			);
+			const old = settlements.shift();
+			if (outcome === "failure") old.reject(new Error("old request failed"));
+			else old.resolve();
+			await nextTick();
+			assert.deepEqual(processed, ["A", revisions.at(-1)]);
+			settlements.shift().resolve();
+			await nextTick();
+			assert.equal(session.pendingIds.size, 0);
+			assert.equal(session.inFlightCount, 0);
+		});
+	}
+}
+
+for (const placement of ["front", "back"]) {
+	test(`page queue updates a pending snapshot with ${placement} placement`, async () => {
+		const processed = [];
+		let finish;
+		const queue = createPageTranslationQueue({
+			concurrency: 1,
+			batchSize: 1,
+			processBatch({ items }) {
+				processed.push(items[0].text);
+				if (items[0].id === "busy")
+					return new Promise((resolve) => {
+						finish = resolve;
+					});
+			},
+		});
+		const session = queue.create(21, {});
+		queue.enqueue(21, session.sessionId, [
+			{ id: "busy", text: "busy" },
+			{ id: "source", text: "A" },
+		]);
+		await nextTick();
+		for (let index = 0; index < 100; index += 1) {
+			queue.enqueue(
+				21,
+				session.sessionId,
+				[{ id: "source", text: `revision-${index}` }],
+				0,
+				{ placement },
+			);
+		}
+		assert.equal(session.pendingItems.length, 1);
+		finish();
+		await nextTick();
+		assert.deepEqual(processed, ["busy", "revision-99"]);
+	});
+}
+
+test("active revisions retain one latest snapshot and release other source capacity", async () => {
+	const processed = [];
+	const settlements = [];
+	const queue = createPageTranslationQueue({
+		concurrency: 2,
+		batchSize: 1,
+		processBatch({ items }) {
+			processed.push(items[0].text);
+			return new Promise((resolve) => settlements.push(resolve));
+		},
+	});
+	const session = queue.create(22, {});
+	queue.enqueue(22, session.sessionId, [{ id: "source", text: "A" }]);
+	await nextTick();
+	for (let index = 0; index < 100; index += 1) {
+		queue.enqueue(22, session.sessionId, [
+			{ id: "source", text: `revision-${index}` },
+		]);
+	}
+	assert.equal(session.latestPendingItems.size, 1);
+	assert.equal(session.pendingIds.size, 1);
+	assert.equal(session.pendingItems.length, 0);
+	queue.enqueue(22, session.sessionId, [
+		{ id: "unrelated", text: "unrelated" },
+	]);
+	await nextTick();
+	assert.deepEqual(processed, ["A", "unrelated"]);
+	settlements.pop()();
+	await nextTick();
+	assert.deepEqual(processed, ["A", "unrelated"]);
+	settlements.shift()();
+	await nextTick();
+	assert.deepEqual(processed, ["A", "unrelated", "revision-99"]);
+	settlements.shift()();
+	await nextTick();
+	assert.equal(session.latestPendingItems.size, 0);
+	assert.equal(session.activeItems.size, 0);
+});
+
+test("returning to the active snapshot discards its superseded pending revision", async () => {
+	let processed = 0;
+	let finish;
+	const queue = createPageTranslationQueue({
+		processBatch() {
+			processed += 1;
+			return new Promise((resolve) => {
+				finish = resolve;
+			});
+		},
+	});
+	const session = queue.create(23, {});
+	for (const text of ["A", "B", "A"]) {
+		queue.enqueue(23, session.sessionId, [{ id: "source", text }]);
+	}
+	await nextTick();
+	finish();
+	await nextTick();
+	assert.equal(processed, 1);
+	assert.equal(session.pendingIds.size, 0);
+});
+
+test("page translation queue leaves active subtitle revision coalescing to the fallback", async () => {
+	let processed = 0;
+	let finish;
+	const queue = createPageTranslationQueue({
+		processBatch() {
+			processed += 1;
+			return new Promise((resolve) => {
+				finish = resolve;
+			});
+		},
+	});
+	const session = queue.create(24, {});
+	for (const text of ["A", "B", "C"]) {
+		queue.enqueue(24, session.sessionId, [
+			{ id: "source", kind: "subtitle", text },
+		]);
+	}
+	await nextTick();
+	finish();
+	await nextTick();
+	assert.equal(processed, 1);
+	assert.equal(session.pendingIds.size, 0);
+});
+
 test("page translation queue recovers after synchronous batch errors", async () => {
 	const errors = [];
 	const processed = [];

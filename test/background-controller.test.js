@@ -54,6 +54,9 @@ function createController(options = {}) {
 			},
 		},
 		platform: {
+			async ensureApiPermission() {
+				return true;
+			},
 			buildDebugPayload(settings) {
 				return {
 					debug: { enabled: Boolean(settings?.showTranslationDebugInfo) },
@@ -240,6 +243,7 @@ test("model endpoint lookup ignores unrelated prompt validation errors", async (
 	assert.deepEqual(
 		await controller.handleRuntimeMessage(message, {
 			id: "trusted-extension-id",
+			url: "chrome-extension://trusted-extension-id/options/index.html",
 		}),
 		{ ok: true, origins: ["https://api.example.com/*"] },
 	);
@@ -263,7 +267,10 @@ test("connection tests bypass the translation cache", async () => {
 		Messages.createMessage(Messages.MESSAGE_TYPES.TEST_CONNECTION, {
 			...Settings.DEFAULT_SETTINGS,
 		}),
-		{ id: "trusted-extension-id" },
+		{
+			id: "trusted-extension-id",
+			url: "chrome-extension://trusted-extension-id/options/index.html",
+		},
 	);
 
 	assert.equal(request.bypassCache, true);

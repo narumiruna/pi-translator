@@ -62,7 +62,14 @@ function createBrowserAnthropicOAuth(options = {}) {
 		name: "Anthropic (Claude Pro/Max)",
 		isSubscription: true,
 		async login(interaction) {
+			throwIfAborted(interaction.signal);
 			const { challenge, verifier } = await generatePkce(dependencies.crypto);
+			const stateBytes = new Uint8Array(32);
+			dependencies.crypto.getRandomValues(stateBytes);
+			const expectedState = Array.from(stateBytes, (byte) =>
+				byte.toString(16).padStart(2, "0"),
+			).join("");
+			throwIfAborted(interaction.signal);
 			const authorizeUrl = new URL(AUTHORIZE_URL);
 			authorizeUrl.search = new URLSearchParams({
 				client_id: CLIENT_ID,
@@ -72,7 +79,7 @@ function createBrowserAnthropicOAuth(options = {}) {
 				redirect_uri: REDIRECT_URI,
 				response_type: "code",
 				scope: SCOPES,
-				state: verifier,
+				state: expectedState,
 			}).toString();
 
 			interaction.notify({
@@ -86,11 +93,17 @@ function createBrowserAnthropicOAuth(options = {}) {
 				message: "Paste the authorization code or final redirect URL:",
 				placeholder: REDIRECT_URI,
 			});
-			const { code, state } = parseAuthorizationInput(input);
+			throwIfAborted(interaction.signal);
+			const value = String(input || "").trim();
+			const { code, state } = parseAuthorizationInput(value);
 			if (!code) {
 				throw new Error("Anthropic OAuth authorization code is required.");
 			}
-			if (state && state !== verifier) {
+			// The SDK permits a manually copied bare code with local state.
+			// A structured callback must contain the exact returned state (RFC 6749).
+			const isCallback =
+				URL.canParse(value) || value.includes("#") || value.includes("code=");
+			if ((isCallback || state !== undefined) && state !== expectedState) {
 				throw new Error("Anthropic OAuth state mismatch.");
 			}
 			interaction.notify({
@@ -104,7 +117,7 @@ function createBrowserAnthropicOAuth(options = {}) {
 					code_verifier: verifier,
 					grant_type: "authorization_code",
 					redirect_uri: REDIRECT_URI,
-					state: state || verifier,
+					state: expectedState,
 				},
 				interaction.signal,
 				dependencies,

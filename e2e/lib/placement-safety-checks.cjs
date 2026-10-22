@@ -48,6 +48,7 @@ async function checkPlacementSafety(page, origin) {
 			const ready = send("render-page-translation-updates", {
 				translations: items.map((item) => ({
 					id: item.id,
+					sourceText: item.text,
 					translation: "這是安全的測試翻譯。",
 				})),
 				targetLanguage: "zh-TW",

@@ -115,7 +115,23 @@ function splitTextRecursively(text, limit, level) {
 		}
 	}
 
-	return descriptors;
+	const packed = [];
+
+	for (const descriptor of descriptors) {
+		const previous = packed.at(-1);
+		if (
+			previous &&
+			previous.text.length + previous.joiner.length + descriptor.text.length <=
+				limit
+		) {
+			previous.text += previous.joiner + descriptor.text;
+			previous.joiner = descriptor.joiner;
+		} else {
+			packed.push({ ...descriptor });
+		}
+	}
+
+	return packed;
 }
 
 function chunkTranslationItems(items, maxChars) {

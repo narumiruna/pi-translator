@@ -37,4 +37,36 @@ function waitForAbortable(operation, signal) {
 	});
 }
 
-export { waitForAbortable };
+// A non-subtitle batch may need more time than a live caption, but must not stall forever.
+const TRANSLATION_BATCH_DEADLINE_MS = 120_000;
+
+function createRequestAbortScope(
+	parentSignal,
+	timeoutMs = TRANSLATION_BATCH_DEADLINE_MS,
+) {
+	const controller = new AbortController();
+	const cancel = () => controller.abort(parentSignal.reason);
+	let timer;
+	if (parentSignal?.aborted) {
+		cancel();
+	} else {
+		parentSignal?.addEventListener("abort", cancel, { once: true });
+		timer = setTimeout(
+			() => controller.abort(new Error("request-timeout")),
+			timeoutMs,
+		);
+	}
+	return {
+		signal: controller.signal,
+		dispose() {
+			clearTimeout(timer);
+			parentSignal?.removeEventListener("abort", cancel);
+		},
+	};
+}
+
+export {
+	createRequestAbortScope,
+	TRANSLATION_BATCH_DEADLINE_MS,
+	waitForAbortable,
+};

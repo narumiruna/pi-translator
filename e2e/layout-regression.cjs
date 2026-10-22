@@ -41,6 +41,7 @@ async function main() {
 					element.setAttribute("data-ot-source-id", `ot-${i}`);
 					return {
 						id: `ot-${i}`,
+						sourceText: runtime.__TEST__.getSegmentContent(element).text,
 						translation: "這是翻譯內容，用於驗證排版維持正常。".repeat(4),
 					};
 				});
@@ -140,6 +141,9 @@ async function main() {
 				const sourceText = runtime.__TEST__.getSegmentContent(sources[1]).text;
 				sources[1].firstChild.textContent =
 					"Updated dynamic salary: $25–$80/hr.";
+				translations[1].sourceText = runtime.__TEST__.getSegmentContent(
+					sources[1],
+				).text;
 				translations[1].translation = "更新後的薪資：$25–$80/hr。";
 				render();
 				const dynamicCount = sources[1].querySelectorAll(

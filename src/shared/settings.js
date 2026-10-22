@@ -1,6 +1,7 @@
 import * as AppearanceApi from "./appearance.js";
 
 const STORAGE_KEY = "settings";
+const SYNC_QUOTA_BYTES_PER_ITEM = 8192;
 const DEFAULT_PROVIDER = "openai";
 const BASIC_THINKING_LEVELS = Object.freeze([
 	"off",
@@ -331,6 +332,16 @@ function validateSettings(input) {
 		}
 	}
 
+	// Chrome counts the UTF-8 key and JSON value, not only prompt characters.
+	const itemBytes = new TextEncoder().encode(
+		STORAGE_KEY + JSON.stringify(settings),
+	).byteLength;
+	if (itemBytes > SYNC_QUOTA_BYTES_PER_ITEM) {
+		errors.push(
+			`Settings use ${itemBytes} bytes; Chrome sync allows ${SYNC_QUOTA_BYTES_PER_ITEM} bytes per item. Shorten prompt templates or disabled domains by at least ${itemBytes - SYNC_QUOTA_BYTES_PER_ITEM} UTF-8 bytes, then save again.`,
+		);
+	}
+
 	return {
 		settings,
 		errors,
@@ -340,7 +351,8 @@ function validateSettings(input) {
 }
 
 function hasCompleteSettings(settings) {
-	return validateSettings(settings).isValid;
+	// The sync quota limits writes, not use of settings normalized in memory.
+	return validateSettings(settings).invalidFields.length === 0;
 }
 
 function getApiPermissionPattern(baseUrl) {

@@ -198,95 +198,102 @@ test("subtitle replacements rebind exact notes before cleanup and scheduling", (
 	assert.equal(timers.length, 0);
 });
 
-test("subtitle text changes reset the source before translation is scheduled", () => {
-	const events = [];
-	const timers = [];
-	let handleMutations;
-	const body = {};
-	const source = {
-		nodeType: Node.ELEMENT_NODE,
-		closest(value) {
-			return value === selector || value === "[data-ot-source-id]"
-				? source
-				: null;
-		},
-		getAttribute(name) {
-			return name === "data-ot-source-id" ? "ot-1" : null;
-		},
-		matches(value) {
-			return value === selector;
-		},
-	};
-	const observer = createPageObserver({
-		// biome-ignore lint/correctness/noComponentHookFactories: This is a DOM constructor stub, not a React component.
-		MutationObserver: function MutationObserver(callback) {
-			handleMutations = callback;
-			return {
-				disconnect() {},
-				observe() {},
-			};
-		},
-		Node,
-		SubtitleApi: {
-			YOUTUBE_CAPTION_SEGMENT_SELECTOR: selector,
-			isSubtitleProfile() {
+test.each([true, false])(
+	"text changes reset the source before scheduling (subtitle=%s)",
+	(subtitle) => {
+		const events = [];
+		const timers = [];
+		let handleMutations;
+		const body = {};
+		const source = {
+			nodeType: Node.ELEMENT_NODE,
+			closest(value) {
+				return value === selector || value === "[data-ot-source-id]"
+					? source
+					: null;
+			},
+			getAttribute(name) {
+				return name === "data-ot-source-id" ? "ot-1" : null;
+			},
+			matches(value) {
+				return value === selector;
+			},
+			setAttribute() {},
+			removeAttribute() {},
+		};
+		const observer = createPageObserver({
+			// biome-ignore lint/correctness/noComponentHookFactories: This is a DOM constructor stub, not a React component.
+			MutationObserver: function MutationObserver(callback) {
+				handleMutations = callback;
+				return {
+					disconnect() {},
+					observe() {},
+				};
+			},
+			Node,
+			SubtitleApi: {
+				YOUTUBE_CAPTION_SEGMENT_SELECTOR: selector,
+				isSubtitleProfile() {
+					return subtitle;
+				},
+				removeDetachedSubtitleSources() {},
+				resetChangedSubtitleSource(_profile, options) {
+					assert.equal(options.getSourceText(source), "Build reliable tools");
+					if (subtitle) events.push("reset");
+					return subtitle;
+				},
+			},
+			activeSiteProfile: {},
+			contentLifecycle: {
+				cleanup() {},
+				start() {},
+			},
+			document: { body },
+			getExistingNoteForSource() {
+				return null;
+			},
+			getSourceText() {
+				return "Build reliable tools";
+			},
+			hasSourceTextChanged() {
 				return true;
 			},
-			removeDetachedSubtitleSources() {},
-			resetChangedSubtitleSource(_profile, options) {
-				assert.equal(options.getSourceText(source), "Build reliable tools");
+			isInsideTranslation() {
+				return false;
+			},
+			onScheduleVisibleTranslation() {
+				events.push("schedule");
+			},
+			observerDebounceMs: 0,
+			processedAttr: "data-translated",
+			queuedAttr: "data-ot-queued",
+			rootAttr: "data-ot-role",
+			setSourceQueued() {
 				events.push("reset");
-				return true;
 			},
-		},
-		activeSiteProfile: {},
-		contentLifecycle: {
-			cleanup() {},
-			start() {},
-		},
-		document: { body },
-		getExistingNoteForSource() {
-			return null;
-		},
-		getSourceText() {
-			return "Build reliable tools";
-		},
-		hasSourceTextChanged() {
-			return true;
-		},
-		isInsideTranslation() {
-			return false;
-		},
-		onScheduleVisibleTranslation() {
-			events.push("schedule");
-		},
-		observerDebounceMs: 0,
-		processedAttr: "data-translated",
-		queuedAttr: "data-ot-queued",
-		rootAttr: "data-ot-role",
-		setSourceQueued() {},
-		sourceAttr: "data-ot-source-id",
-		staleAttr: "data-ot-source-stale",
-		translatedAttr: "data-ot-translated",
-		window: {
-			clearTimeout() {},
-			setTimeout(callback) {
-				timers.push(callback);
-				return timers.length;
+			sourceAttr: "data-ot-source-id",
+			staleAttr: "data-ot-source-stale",
+			translatedAttr: "data-ot-translated",
+			window: {
+				clearTimeout() {},
+				setTimeout(callback) {
+					timers.push(callback);
+					return timers.length;
+				},
 			},
-		},
-	});
+		});
 
-	observer.ensureObserver();
-	handleMutations([
-		{
-			addedNodes: [],
-			removedNodes: [],
-			target: { nodeType: 3, parentElement: source },
-			type: "characterData",
-		},
-	]);
+		observer.ensureObserver();
+		handleMutations([
+			{
+				addedNodes: [],
+				removedNodes: [],
+				target: { nodeType: 3, parentElement: source },
+				type: "characterData",
+			},
+		]);
 
-	assert.deepEqual(events, ["reset", "schedule"]);
-	assert.equal(timers.length, 0);
-});
+		assert.deepEqual(events, ["reset", "schedule"]);
+		assert.equal(timers.length, 0);
+	},
+);

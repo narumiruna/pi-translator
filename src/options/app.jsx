@@ -88,6 +88,7 @@ function OptionsApp() {
 	const operations = useRef({ save: false, test: false });
 	const permissionRequest = useRef(0);
 	const promptResolution = useRef(null);
+	const authTrigger = useRef(null);
 
 	draftRef.current = draft;
 
@@ -148,6 +149,13 @@ function OptionsApp() {
 			setFocusTarget("");
 		}
 	}, [focusTarget]);
+
+	useEffect(() => {
+		if (!authFlow.open && !authBusy && authTrigger.current) {
+			authTrigger.current.focus();
+			authTrigger.current = null;
+		}
+	}, [authFlow.open, authBusy]);
 
 	function revealInvalidField(id) {
 		const field = document.getElementById(id);
@@ -306,7 +314,7 @@ function OptionsApp() {
 		}
 	}
 
-	function handleAuthenticate() {
+	function handleAuthenticate(event) {
 		if (authBusy) {
 			return;
 		}
@@ -320,6 +328,7 @@ function OptionsApp() {
 			return;
 		}
 
+		authTrigger.current = event.currentTarget;
 		setAuthBusy(true);
 		setBanner(null);
 		if (methods.length === 1) {
@@ -494,10 +503,9 @@ function OptionsApp() {
 					"Settings saved. Provider access will be requested when needed.",
 				tone: "green",
 			});
-		} catch (_error) {
+		} catch (error) {
 			setBanner({
-				message:
-					"Settings could not be saved. Check permissions and try again.",
+				message: `Settings could not be saved. ${error.message || "Try again."}`,
 				tone: "red",
 			});
 		} finally {

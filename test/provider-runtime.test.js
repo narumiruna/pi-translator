@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import { BROWSER_APIS } from "../src/auth/browser-apis.js";
 import { getBrowserOAuthProviderIds } from "../src/auth/browser-oauth.js";
@@ -423,6 +423,129 @@ test("provider runtime invalidates only the expected credential type", async () 
 	assert.equal(await runtime.credentials.read(providerId), undefined);
 });
 
+test.each(["local", "sync"])(
+	"provider runtime restricts both storage areas before migration or model use when %s resolves first",
+	async (firstArea) => {
+		const chrome = createChrome();
+		const releases = {};
+		for (const area of ["local", "sync"]) {
+			const gate = new Promise((resolve) => {
+				releases[area] = resolve;
+			});
+			chrome.storage[area].setAccessLevel = vi.fn(async (options) => {
+				await gate;
+				await MemoryStorage.prototype.setAccessLevel.call(
+					chrome.storage[area],
+					options,
+				);
+			});
+		}
+		const runtime = new ProviderRuntime({ chrome, settingsApi: Settings });
+		const migrate = vi.spyOn(runtime, "migrateLegacySettings");
+		const getModel = vi.spyOn(runtime.models, "getModel");
+		const initializing = runtime.initialize();
+		const pendingModel = runtime.getModel(Settings.DEFAULT_SETTINGS);
+		try {
+			assert.equal(runtime.initialize(), initializing);
+			for (const area of ["local", "sync"]) {
+				assert.deepEqual(chrome.storage[area].setAccessLevel.mock.calls, [
+					[{ accessLevel: "TRUSTED_CONTEXTS" }],
+				]);
+			}
+			assert.equal(migrate.mock.calls.length, 0);
+			assert.equal(getModel.mock.calls.length, 0);
+			releases[firstArea]();
+			await new Promise(setImmediate);
+			assert.equal(runtime.initialized, false);
+			assert.equal(migrate.mock.calls.length, 0);
+			assert.equal(getModel.mock.calls.length, 0);
+			releases[firstArea === "local" ? "sync" : "local"]();
+			await initializing;
+			await pendingModel;
+			assert.equal(runtime.initialized, true);
+			assert.equal(migrate.mock.calls.length, 1);
+			assert.equal(getModel.mock.calls.length, 1);
+		} finally {
+			releases.local();
+			releases.sync();
+			await Promise.allSettled([initializing, pendingModel]);
+		}
+	},
+);
+
+test.each(["local", "sync"])(
+	"provider runtime fails closed when %s storage restriction fails",
+	async (failedArea) => {
+		const chrome = createChrome();
+		chrome.storage.sync.values[Settings.STORAGE_KEY] = {
+			apiKey: "synthetic-legacy-secret",
+			baseUrl: "https://synthetic.example/v1",
+			model: "legacy-model",
+		};
+		const error = new Error(`${failedArea} access restriction failed`);
+		const accessChanges = [];
+		const storageOperations = [];
+		for (const area of ["local", "sync"]) {
+			chrome.storage[area].setAccessLevel = vi.fn(async (options) => {
+				accessChanges.push([area, options]);
+				if (area === failedArea) throw error;
+			});
+			for (const method of ["get", "set", "remove"]) {
+				storageOperations.push(vi.spyOn(chrome.storage[area], method));
+			}
+		}
+		const fetch = vi.fn();
+		const runtime = new ProviderRuntime({
+			chrome,
+			settingsApi: Settings,
+			fetch,
+		});
+		const blockedOperations = [
+			vi.spyOn(runtime, "migrateLegacySettings"),
+			...storageOperations,
+			...["read", "modify", "delete"].map((method) =>
+				vi.spyOn(runtime.credentials, method),
+			),
+			...[
+				"getModel",
+				"getProviders",
+				"checkAuth",
+				"completeSimple",
+				"login",
+				"getAuth",
+				"logout",
+			].map((method) => vi.spyOn(runtime.models, method)),
+			fetch,
+		];
+		const initializing = runtime.initialize();
+		await assert.rejects(initializing, (reason) => reason === error);
+		assert.equal(runtime.initialize(), initializing);
+		const settings = Settings.DEFAULT_SETTINGS;
+		await Promise.all(
+			[
+				runtime.initialize(),
+				runtime.getCatalog(settings),
+				runtime.getAuthStatus(settings.provider),
+				runtime.getModelEndpointPatterns(settings),
+				runtime.getModelCacheIdentity(settings),
+				runtime.complete(settings, { userPrompt: "Synthetic source" }),
+				runtime.login(settings.provider, "api_key", {}),
+				runtime.refreshCredential(settings.provider),
+				runtime.logout(settings.provider),
+				runtime.invalidateCredential(settings.provider),
+			].map((pending) => assert.rejects(pending, (reason) => reason === error)),
+		);
+		assert.equal(runtime.initialized, false);
+		assert.deepEqual(accessChanges, [
+			["local", { accessLevel: "TRUSTED_CONTEXTS" }],
+			["sync", { accessLevel: "TRUSTED_CONTEXTS" }],
+		]);
+		for (const operation of blockedOperations) {
+			assert.equal(operation.mock.calls.length, 0);
+		}
+	},
+);
+
 test("provider runtime migrates legacy secrets into trusted local credentials", async () => {
 	const chrome = createChrome();
 	chrome.storage.sync.values[Settings.STORAGE_KEY] = {
@@ -436,6 +559,7 @@ test("provider runtime migrates legacy secrets into trusted local credentials", 
 	await runtime.initialize();
 
 	assert.equal(chrome.storage.local.accessLevel, "TRUSTED_CONTEXTS");
+	assert.equal(chrome.storage.sync.accessLevel, "TRUSTED_CONTEXTS");
 	assert.equal(chrome.storage.local.values[LEGACY_MIGRATION_KEY], true);
 	assert.deepEqual(
 		chrome.storage.local.values[CREDENTIALS_KEY][Settings.CUSTOM_PROVIDER],

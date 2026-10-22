@@ -56,6 +56,8 @@ function createPageTranslationQueue(options = {}) {
 			settings,
 			pendingItems: [],
 			pendingIds: new Set(),
+			activeItems: new Map(),
+			latestPendingItems: new Map(),
 			translatedIds: new Set(),
 			inFlightCount: 0,
 		};
@@ -175,6 +177,7 @@ function createPageTranslationQueue(options = {}) {
 			}
 
 			session.inFlightCount += 1;
+			for (const item of items) session.activeItems.set(item.id, item);
 
 			Promise.resolve()
 				.then(() =>
@@ -202,7 +205,11 @@ function createPageTranslationQueue(options = {}) {
 					}
 
 					for (const item of items) {
-						currentSession.pendingIds.delete(item.id);
+						currentSession.activeItems.delete(item.id);
+						const latest = currentSession.latestPendingItems.get(item.id);
+						currentSession.latestPendingItems.delete(item.id);
+						if (latest) currentSession.pendingItems.unshift(latest);
+						else currentSession.pendingIds.delete(item.id);
 					}
 
 					currentSession.inFlightCount = Math.max(
@@ -227,9 +234,9 @@ function createPageTranslationQueue(options = {}) {
 		const queuedItems = [];
 		const prioritizedItems = [];
 		const prioritizedIds = new Set();
-		const pendingItemsById = placeAtBack
-			? null
-			: new Map(session.pendingItems.map((item) => [item.id, item]));
+		const pendingItemsById = new Map(
+			session.pendingItems.map((item) => [item.id, item]),
+		);
 
 		for (const item of items || []) {
 			if (
@@ -241,29 +248,51 @@ function createPageTranslationQueue(options = {}) {
 			}
 
 			if (session.pendingIds.has(item.id)) {
-				const pendingItem = pendingItemsById?.get(item.id);
-
-				if (pendingItem && !prioritizedIds.has(item.id)) {
-					prioritizedIds.add(item.id);
-					prioritizedItems.push(pendingItem);
+				const activeItem = session.activeItems.get(item.id);
+				// Subtitle fallback owns its own prefix matching and coalescing.
+				const ordinarySnapshot =
+					item.kind !== "subtitle" && typeof item.text === "string";
+				if (activeItem && ordinarySnapshot) {
+					if (item.text === activeItem.text)
+						session.latestPendingItems.delete(item.id);
+					else {
+						session.latestPendingItems.set(item.id, item);
+						session.translatedIds.delete(item.id);
+					}
+				}
+				const pendingItem = pendingItemsById.get(item.id);
+				if (pendingItem) {
+					if (ordinarySnapshot) pendingItemsById.set(item.id, item);
+					if (!placeAtBack && !prioritizedIds.has(item.id)) {
+						prioritizedIds.add(item.id);
+						prioritizedItems.push(item.id);
+					}
 				}
 				continue;
 			}
 
 			session.pendingIds.add(item.id);
+			pendingItemsById.set(item.id, item);
 			queuedItems.push(item);
 			if (!placeAtBack) {
 				prioritizedIds.add(item.id);
-				prioritizedItems.push(item);
+				prioritizedItems.push(item.id);
 			}
 		}
 
+		session.pendingItems = session.pendingItems.map((item) =>
+			pendingItemsById.get(item.id),
+		);
 		if (placeAtBack && queuedItems.length > 0) {
-			session.pendingItems.push(...queuedItems);
-		} else if (prioritizedItems.length > 0) {
-			session.pendingItems = prioritizedItems.concat(
-				session.pendingItems.filter((item) => !prioritizedIds.has(item.id)),
+			session.pendingItems.push(
+				...queuedItems.map((item) => pendingItemsById.get(item.id)),
 			);
+		} else if (prioritizedItems.length > 0) {
+			session.pendingItems = prioritizedItems
+				.map((id) => pendingItemsById.get(id))
+				.concat(
+					session.pendingItems.filter((item) => !prioritizedIds.has(item.id)),
+				);
 		}
 
 		if (queuedItems.length > 0 || prioritizedItems.length > 0) {

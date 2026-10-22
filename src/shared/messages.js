@@ -53,8 +53,8 @@ function clearPagePlaceholders(payload) {
 	return createMessage(MESSAGE_TYPES.CLEAR_PAGE_PLACEHOLDERS, payload);
 }
 
-function clearPendingTranslations() {
-	return createMessage(MESSAGE_TYPES.CLEAR_PENDING_TRANSLATIONS);
+function clearPendingTranslations(payload) {
+	return createMessage(MESSAGE_TYPES.CLEAR_PENDING_TRANSLATIONS, payload);
 }
 
 function getRuntimeHealth() {

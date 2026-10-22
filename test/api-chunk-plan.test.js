@@ -6,11 +6,153 @@ import {
 	consumeProgressiveTranslations,
 	createProgressiveMergeState,
 	createRecursiveChunkPlan,
+	DEFAULT_MAX_BATCH_CHARS,
+	getIncompleteSegmentIds,
 	mergeRecursiveTranslations,
 	splitTextRecursively,
 } from "../src/translation/chunk-plan.js";
 
 import { validateProtectedFragments } from "../src/translation/protected-fragments.js";
+
+test("chunk plan packs 1001 distinct words into two bounded requests", () => {
+	const words = Array.from({ length: 1001 }, (_, index) => `word${index}`);
+	const text = words.join(" ");
+	assert.equal(text.length, 7898);
+	assert.equal(new Set(words).size, 1001);
+
+	const items = [{ id: "long", kind: "paragraph", text }];
+	const plan = createRecursiveChunkPlan(items);
+	assert.equal(plan.chunks.length, 2);
+	assert.deepEqual(createRecursiveChunkPlan(items), plan);
+	assert.deepEqual(
+		plan.chunks.map((chunk) => chunk.map(({ id }) => id)),
+		[["long__part_1"], ["long__part_2"]],
+	);
+	assert.ok(
+		plan.chunks.every(
+			(chunk) =>
+				chunk.reduce((length, item) => length + item.text.length, 0) <=
+				DEFAULT_MAX_BATCH_CHARS,
+		),
+	);
+	assert.deepEqual(
+		plan.expandedItems.map(({ partIndex, partCount }) => [
+			partIndex,
+			partCount,
+		]),
+		[
+			[0, 2],
+			[1, 2],
+		],
+	);
+	assert.equal(
+		plan.expandedItems.map(({ text, joiner }) => text + joiner).join(""),
+		text,
+	);
+
+	const translations = plan.expandedItems.map((item) => ({
+		id: item.id,
+		translation: item.text,
+	}));
+	const merged = mergeRecursiveTranslations(plan, translations);
+	assert.equal(merged[0].translation, text);
+	const state = createProgressiveMergeState(plan);
+	assert.deepEqual(
+		consumeProgressiveTranslations(plan, state, [translations[1]]),
+		[],
+	);
+	assert.deepEqual(getIncompleteSegmentIds(plan, state), ["long"]);
+	assert.deepEqual(
+		consumeProgressiveTranslations(plan, state, [translations[0]]),
+		merged,
+	);
+	assert.deepEqual(getIncompleteSegmentIds(plan, state), []);
+	assert.deepEqual(
+		consumeProgressiveTranslations(plan, state, translations),
+		[],
+	);
+});
+
+test("recursive packing counts boundary joiners and preserves their order", () => {
+	for (const [text, limit, expected] of [
+		[
+			"alpha\n\nbeta\n\ngamma",
+			11,
+			[
+				{ text: "alpha\n\nbeta", joiner: "\n\n" },
+				{ text: "gamma", joiner: "" },
+			],
+		],
+		[
+			"alpha\nbeta\ngamma",
+			10,
+			[
+				{ text: "alpha\nbeta", joiner: "\n" },
+				{ text: "gamma", joiner: "" },
+			],
+		],
+		[
+			"One. Two. Three.",
+			10,
+			[
+				{ text: "One. Two.", joiner: " " },
+				{ text: "Three.", joiner: "" },
+			],
+		],
+		[
+			"one, two; three: four",
+			10,
+			[
+				{ text: "one, two;", joiner: " " },
+				{ text: "three:", joiner: " " },
+				{ text: "four", joiner: "" },
+			],
+		],
+		[
+			"alpha beta gamma",
+			10,
+			[
+				{ text: "alpha beta", joiner: " " },
+				{ text: "gamma", joiner: "" },
+			],
+		],
+		[
+			"aa\n\nbbbbbb ccc dd\n\nee",
+			10,
+			[
+				{ text: "aa", joiner: "\n\n" },
+				{ text: "bbbbbb ccc", joiner: " " },
+				{ text: "dd\n\nee", joiner: "" },
+			],
+		],
+	]) {
+		const parts = splitTextRecursively(text, limit);
+		assert.deepEqual(parts, expected);
+		assert.ok(parts.every((part) => part.text.length <= limit));
+		assert.equal(parts.map(({ text, joiner }) => text + joiner).join(""), text);
+	}
+});
+
+test("chunk plan keeps short sources separate and unchanged", () => {
+	for (const kind of ["paragraph", "subtitle"]) {
+		const items = [
+			{ id: "one", kind, text: "One" },
+			{ id: "two", kind, text: "Two" },
+		];
+		const plan = createRecursiveChunkPlan(items);
+		assert.deepEqual(
+			plan.chunks.map((chunk) => chunk.map(({ id }) => id)),
+			[["one"], ["two"]],
+		);
+		assert.deepEqual(
+			plan.expandedItems.map(({ text, partCount }) => [text, partCount]),
+			[
+				["One", 1],
+				["Two", 1],
+			],
+		);
+	}
+});
 
 test("hard splitting keeps currency and DOM math placeholders atomic", () => {
 	for (const suffix of ["$50", "$50–$150/hr", "__OT_MATH_1__"]) {
@@ -103,17 +245,7 @@ test("single and split parts retain IDs, timing, directives, joiners and token m
 	];
 	for (const [limit, texts] of [
 		[5000, ["Run __OT_TOKEN_1__. Then open __OT_TOKEN_2__ for details."]],
-		[
-			24,
-			[
-				"Run __OT_TOKEN_1__.",
-				"Then",
-				"open",
-				"__OT_TOKEN_2__",
-				"for",
-				"details.",
-			],
-		],
+		[24, ["Run __OT_TOKEN_1__.", "Then open __OT_TOKEN_2__", "for details."]],
 	]) {
 		const plan = createRecursiveChunkPlan([item], limit);
 		const expected = texts.map((text, index) => ({

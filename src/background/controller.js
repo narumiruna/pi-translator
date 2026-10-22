@@ -1,4 +1,4 @@
-import { waitForAbortable } from "../shared/abort.js";
+import { createRequestAbortScope, waitForAbortable } from "../shared/abort.js";
 import { translateItemsProgressively } from "../translation/progressive.js";
 import { getSelectionAnchor } from "./selection-anchor.js";
 import { createYoutubeCaptionPrefetch } from "./youtube-caption-prefetch.js";
@@ -67,6 +67,7 @@ export function createBackgroundController(options = {}) {
 		setupContextMenus,
 	} = platform;
 	const youtubeStartups = new Map();
+	const pageStartups = new Map();
 	let selectionRequestSequence = 0;
 	function createSelectionRequestId() {
 		selectionRequestSequence += 1;
@@ -116,8 +117,58 @@ export function createBackgroundController(options = {}) {
 		items,
 	) {
 		const session = getPageTranslationSession(tabId, sessionId, frameId);
-		if (!session || !items?.some((item) => item.kind === "subtitle")) {
-			return runPageTranslationItemBatch(tabId, frameId, sessionId, items);
+		if (!session) return;
+		if (!items?.some((item) => item.kind === "subtitle")) {
+			const scope = createRequestAbortScope(session.signal);
+			const control = { signal: scope.signal, subtitle: false };
+			try {
+				await waitForAbortable(
+					runPageTranslationItemBatch(
+						tabId,
+						frameId,
+						sessionId,
+						items,
+						control,
+					),
+					scope.signal,
+				);
+			} catch (error) {
+				if (
+					session.signal.aborted ||
+					!getPageTranslationSession(tabId, sessionId, frameId)
+				)
+					return;
+				if (isTabMessageDisconnectError(error)) {
+					pageTranslationQueue.remove(tabId, frameId);
+					const count = pageTranslationQueue.getTranslatedCount(tabId);
+					setBadge(tabId, count > 0 ? String(count) : "");
+					return;
+				}
+				// Failure UI must not hold the queue when a content endpoint stalls.
+				Promise.resolve(
+					clearPagePlaceholders(
+						tabId,
+						items.map(({ id }) => id),
+						frameId,
+						{ items },
+						sessionId,
+					),
+				).catch(() => {});
+				setBadge(tabId, "!");
+				Promise.resolve(
+					sendToast(
+						tabId,
+						scope.signal.reason?.message === "request-timeout"
+							? "Page translation timed out. Try translating again."
+							: "Some page text could not be translated. Try again.",
+						"error",
+					),
+				).catch(() => {});
+			} finally {
+				control.finished = true;
+				scope.dispose();
+			}
+			return;
 		}
 		const controller = new AbortController();
 		const cancel = () => controller.abort(new Error("cancelled"));
@@ -127,7 +178,11 @@ export function createBackgroundController(options = {}) {
 			() => controller.abort(new Error("request-timeout")),
 			SUBTITLE_DEADLINE_MS,
 		);
-		const control = { signal: controller.signal, reason: "setup-error" };
+		const control = {
+			signal: controller.signal,
+			subtitle: true,
+			reason: "setup-error",
+		};
 		try {
 			await waitForAbortable(
 				runPageTranslationItemBatch(tabId, frameId, sessionId, items, control),
@@ -234,6 +289,7 @@ export function createBackgroundController(options = {}) {
 					tabId,
 					Messages.renderPagePlaceholders({
 						ids: placeholderIds,
+						sessionId,
 						targetLanguage: session.settings.targetLanguage,
 						...buildTranslationAppearancePayload(session.settings),
 					}),
@@ -275,34 +331,29 @@ export function createBackgroundController(options = {}) {
 						signal?.throwIfAborted();
 					}
 
-					if (!control)
-						pageTranslationQueue.markTranslated(
-							tabId,
-							sessionId,
-							completedTranslations.map((translation) => translation.id),
-							frameId,
-						);
-
 					const acknowledgement = await renderPageTranslationUpdates(
 						tabId,
 						currentSession.settings.targetLanguage,
 						completedTranslations,
 						currentSession.settings,
 						frameId,
-						control ? sessionId : undefined,
+						sessionId,
 					);
 					signal?.throwIfAborted();
 					if (!isCurrent()) return;
-					if (control) {
-						if (!acknowledgement || acknowledgement.ok === false)
-							throw new Error("Caption delivery was not acknowledged");
-						pageTranslationQueue.markTranslated(
-							tabId,
-							sessionId,
-							completedTranslations.map((translation) => translation.id),
-							frameId,
-						);
-					}
+					if (
+						control?.subtitle &&
+						(!acknowledgement || acknowledgement.ok === false)
+					)
+						throw new Error("Caption delivery was not acknowledged");
+					pageTranslationQueue.markTranslated(
+						tabId,
+						sessionId,
+						control?.subtitle
+							? completedTranslations.map((translation) => translation.id)
+							: acknowledgement?.renderedIds || [],
+						frameId,
+					);
 					setBadge(
 						tabId,
 						String(pageTranslationQueue.getTranslatedCount(tabId)),
@@ -317,7 +368,7 @@ export function createBackgroundController(options = {}) {
 
 			const { incompleteSegmentIds } = progressiveResult;
 			const configurationFailure =
-				control &&
+				control?.subtitle &&
 				progressiveResult.failures.some((failure) =>
 					isSubtitleConfigurationError(failure.error),
 				);
@@ -335,8 +386,14 @@ export function createBackgroundController(options = {}) {
 					tabId,
 					incompleteSegmentIds,
 					frameId,
-					control ? failureDetails : undefined,
-					control ? sessionId : undefined,
+					control?.subtitle
+						? failureDetails
+						: {
+								items: batchItems.filter((item) =>
+									incompleteSegmentIds.includes(item.id),
+								),
+							},
+					sessionId,
 				);
 				signal?.throwIfAborted();
 			}
@@ -361,7 +418,7 @@ export function createBackgroundController(options = {}) {
 					incompleteSegmentIds.length || progressiveResult.failures.length;
 
 				setBadge(tabId, "!");
-				if (control) return;
+				if (control?.subtitle) return;
 				await sendToast(
 					tabId,
 					`Failed to translate ${failedCount} page item${failedCount === 1 ? "" : "s"}. Successful translations were kept.`,
@@ -458,6 +515,8 @@ export function createBackgroundController(options = {}) {
 
 	function removePageTranslationState(tabId, frameId, preserveStartup = false) {
 		if (!preserveStartup && (!Number.isInteger(frameId) || frameId === 0)) {
+			pageStartups.get(tabId)?.abort(new Error("cancelled"));
+			pageStartups.delete(tabId);
 			youtubeStartups.get(tabId)?.abort(new Error("cancelled"));
 			youtubeStartups.delete(tabId);
 		}
@@ -469,6 +528,55 @@ export function createBackgroundController(options = {}) {
 	}
 
 	async function translatePage(tab, internal = {}) {
+		if (!tab?.id) return runPageTranslationStartup(tab, internal);
+		if (!internal.signal) {
+			youtubeStartups.get(tab.id)?.abort(new Error("cancelled"));
+			youtubeStartups.delete(tab.id);
+		}
+		pageStartups.get(tab.id)?.abort(new Error("cancelled"));
+		const startup = new AbortController();
+		const ownedSessions = new Map();
+		pageStartups.set(tab.id, startup);
+		const cancel = () => startup.abort(internal.signal.reason);
+		if (internal.signal?.aborted) cancel();
+		else internal.signal?.addEventListener("abort", cancel, { once: true });
+		try {
+			return await waitForAbortable(
+				runPageTranslationStartup(tab, {
+					...internal,
+					signal: startup.signal,
+					onSession(session) {
+						ownedSessions.set(session.frameId, session);
+						internal.onSession?.(session);
+					},
+				}),
+				startup.signal,
+			);
+		} catch (error) {
+			for (const session of ownedSessions.values()) {
+				if (
+					getPageTranslationSession(tab.id, session.sessionId, session.frameId)
+				) {
+					removePageTranslationState(tab.id, session.frameId, true);
+				}
+				Promise.resolve(
+					chrome.tabs.sendMessage(
+						tab.id,
+						Messages.clearPendingTranslations({ sessionId: session.sessionId }),
+						getFrameMessageOptions(session.frameId),
+					),
+				).catch(() => {});
+			}
+			if (startup.signal.aborted && !internal.signal?.aborted)
+				return { stale: true };
+			throw error;
+		} finally {
+			internal.signal?.removeEventListener("abort", cancel);
+			if (pageStartups.get(tab.id) === startup) pageStartups.delete(tab.id);
+		}
+	}
+
+	async function runPageTranslationStartup(tab, internal) {
 		const check = () => internal.signal?.throwIfAborted();
 		check();
 		logger?.info("page-translation-start", { tabId: tab?.id });
@@ -892,8 +1000,37 @@ export function createBackgroundController(options = {}) {
 			return { ok: false };
 		}
 
-		if (sender.id !== chrome.runtime.id) {
+		if (sender?.id !== chrome.runtime.id) {
 			return { ok: false, error: "Untrusted message sender." };
+		}
+
+		if (
+			[
+				Messages.MESSAGE_TYPES.TEST_CONNECTION,
+				Messages.MESSAGE_TYPES.GET_PROVIDER_CATALOG,
+				Messages.MESSAGE_TYPES.GET_PROVIDER_AUTH_STATUS,
+				Messages.MESSAGE_TYPES.GET_MODEL_ENDPOINTS,
+			].includes(message.type)
+		) {
+			let trustedPage = false;
+			if (typeof sender.url === "string") {
+				try {
+					const url = new URL(sender.url);
+					trustedPage =
+						url.protocol === "chrome-extension:" &&
+						url.host === chrome.runtime.id &&
+						!url.username &&
+						!url.password;
+				} catch (_error) {
+					// Missing or malformed page URLs cannot authorize administration.
+				}
+			}
+			if (!trustedPage) {
+				return {
+					ok: false,
+					error: "Provider administration requires an extension page.",
+				};
+			}
 		}
 
 		if (message.type === Messages.MESSAGE_TYPES.GET_RUNTIME_HEALTH) {
@@ -1101,6 +1238,16 @@ export function createBackgroundController(options = {}) {
 
 			if (!validation.isValid) {
 				throw new Error(validation.errors.join(" "));
+			}
+
+			if (
+				!(await ensureApiPermission(validation.settings, {
+					interactive: false,
+				}))
+			) {
+				throw new Error(
+					"Permission to access the configured API origin was denied.",
+				);
 			}
 
 			const translationStartedAt = Date.now();
