@@ -892,8 +892,37 @@ export function createBackgroundController(options = {}) {
 			return { ok: false };
 		}
 
-		if (sender.id !== chrome.runtime.id) {
+		if (sender?.id !== chrome.runtime.id) {
 			return { ok: false, error: "Untrusted message sender." };
+		}
+
+		if (
+			[
+				Messages.MESSAGE_TYPES.TEST_CONNECTION,
+				Messages.MESSAGE_TYPES.GET_PROVIDER_CATALOG,
+				Messages.MESSAGE_TYPES.GET_PROVIDER_AUTH_STATUS,
+				Messages.MESSAGE_TYPES.GET_MODEL_ENDPOINTS,
+			].includes(message.type)
+		) {
+			let trustedPage = false;
+			if (typeof sender.url === "string") {
+				try {
+					const url = new URL(sender.url);
+					trustedPage =
+						url.protocol === "chrome-extension:" &&
+						url.host === chrome.runtime.id &&
+						!url.username &&
+						!url.password;
+				} catch (_error) {
+					// Missing or malformed page URLs cannot authorize administration.
+				}
+			}
+			if (!trustedPage) {
+				return {
+					ok: false,
+					error: "Provider administration requires an extension page.",
+				};
+			}
 		}
 
 		if (message.type === Messages.MESSAGE_TYPES.GET_RUNTIME_HEALTH) {
@@ -1101,6 +1130,16 @@ export function createBackgroundController(options = {}) {
 
 			if (!validation.isValid) {
 				throw new Error(validation.errors.join(" "));
+			}
+
+			if (
+				!(await ensureApiPermission(validation.settings, {
+					interactive: false,
+				}))
+			) {
+				throw new Error(
+					"Permission to access the configured API origin was denied.",
+				);
 			}
 
 			const translationStartedAt = Date.now();
