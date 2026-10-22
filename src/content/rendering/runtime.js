@@ -650,6 +650,8 @@ export function createContentRenderer(options = {}) {
 			(payload.translations || []).map((item) => [item.id, item]),
 		);
 		const receivedCount = translationMap.size;
+		const renderedIds = [];
+		const subtitleProfile = SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE);
 		const fallbackSettlements = SubtitleApi.isSubtitleProfile(
 			ACTIVE_SITE_PROFILE,
 		)
@@ -776,8 +778,7 @@ export function createContentRenderer(options = {}) {
 			}
 
 			if (
-				SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
-				!translationItem.provisional &&
+				!(subtitleProfile && translationItem.provisional) &&
 				translationItem.sourceText !== getSegmentContent(element).text
 			) {
 				stale += 1;
@@ -796,7 +797,8 @@ export function createContentRenderer(options = {}) {
 
 			if (note) {
 				rendered += 1;
-				if (translationItem.provisional) {
+				renderedIds.push(id);
+				if (subtitleProfile && translationItem.provisional) {
 					SubtitleApi.resetChangedSubtitleSource(ACTIVE_SITE_PROFILE, {
 						element,
 						getSourceText: (source) => getSegmentContent(source).text,
@@ -831,11 +833,14 @@ export function createContentRenderer(options = {}) {
 			);
 		}
 
-		return { rendered };
+		return { rendered, renderedIds };
 	}
 
 	function clearPagePlaceholders(payload) {
 		const ids = new Set(payload.ids || []);
+		const snapshots = new Map(
+			(payload.items || []).map((item) => [item.id, item.text]),
+		);
 
 		if (SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE)) {
 			if (payload.reason) failYoutubeCaptionFallbacks?.(payload);
@@ -852,12 +857,20 @@ export function createContentRenderer(options = {}) {
 				continue;
 			}
 
+			const source = document.querySelector(`[${SOURCE_ATTR}="${id}"]`);
+			if (
+				source &&
+				!SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
+				(snapshots.has(id)
+					? snapshots.get(id) !== getSegmentContent(source).text
+					: source.getAttribute(STALE_ATTR) === "true")
+			)
+				continue;
+
 			withObserverPaused(() => {
 				note.remove();
 			});
 			cleared += 1;
-
-			const source = document.querySelector(`[${SOURCE_ATTR}="${id}"]`);
 
 			if (source) {
 				setSourceTranslated(source, false);

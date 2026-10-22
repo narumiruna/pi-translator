@@ -329,34 +329,29 @@ export function createBackgroundController(options = {}) {
 						signal?.throwIfAborted();
 					}
 
-					if (!control)
-						pageTranslationQueue.markTranslated(
-							tabId,
-							sessionId,
-							completedTranslations.map((translation) => translation.id),
-							frameId,
-						);
-
 					const acknowledgement = await renderPageTranslationUpdates(
 						tabId,
 						currentSession.settings.targetLanguage,
 						completedTranslations,
 						currentSession.settings,
 						frameId,
-						control ? sessionId : undefined,
+						sessionId,
 					);
 					signal?.throwIfAborted();
 					if (!isCurrent()) return;
-					if (control) {
-						if (!acknowledgement || acknowledgement.ok === false)
-							throw new Error("Caption delivery was not acknowledged");
-						pageTranslationQueue.markTranslated(
-							tabId,
-							sessionId,
-							completedTranslations.map((translation) => translation.id),
-							frameId,
-						);
-					}
+					if (
+						control?.subtitle &&
+						(!acknowledgement || acknowledgement.ok === false)
+					)
+						throw new Error("Caption delivery was not acknowledged");
+					pageTranslationQueue.markTranslated(
+						tabId,
+						sessionId,
+						control?.subtitle
+							? completedTranslations.map((translation) => translation.id)
+							: acknowledgement?.renderedIds || [],
+						frameId,
+					);
 					setBadge(
 						tabId,
 						String(pageTranslationQueue.getTranslatedCount(tabId)),

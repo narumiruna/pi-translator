@@ -49,8 +49,6 @@ export function createPageObserver(options = {}) {
 	} = options;
 	let observer = null;
 	let observerFlushTimer = null;
-	let staleFlushTimer = null;
-	const pendingStaleSources = new Set();
 	const pendingObserverMutations = [];
 
 	function observePageMutations() {
@@ -103,18 +101,6 @@ export function createPageObserver(options = {}) {
 		existingNote?.setAttribute("data-stale", "true");
 	}
 
-	function flushPendingStaleSources() {
-		staleFlushTimer = null;
-		for (const element of pendingStaleSources) markSourceStale(element);
-		pendingStaleSources.clear();
-	}
-
-	function scheduleStaleFlush() {
-		if (!staleFlushTimer) {
-			staleFlushTimer = window.setTimeout(flushPendingStaleSources, 120);
-		}
-	}
-
 	function markRelatedSourcesStale(node) {
 		if (!node) return;
 		const element =
@@ -127,12 +113,8 @@ export function createPageObserver(options = {}) {
 			return;
 		const directSource = element.closest(`[${sourceAttr}]`);
 		if (!directSource) return;
-		if (SubtitleApi.isSubtitleProfile(activeSiteProfile)) {
-			markSourceStale(directSource);
-			return;
-		}
-		pendingStaleSources.add(directSource);
-		scheduleStaleFlush();
+		// Reset before scheduling so collection sees the current revision.
+		markSourceStale(directSource);
 	}
 
 	function reconcileSubtitleNotes() {
@@ -326,13 +308,9 @@ export function createPageObserver(options = {}) {
 		observer?.disconnect();
 		observer = null;
 		contentLifecycle.cleanup();
-		for (const timer of [observerFlushTimer, staleFlushTimer]) {
-			if (timer) window.clearTimeout(timer);
-		}
+		if (observerFlushTimer) window.clearTimeout(observerFlushTimer);
 		observerFlushTimer = null;
-		staleFlushTimer = null;
 		pendingObserverMutations.length = 0;
-		pendingStaleSources.clear();
 	}
 
 	return { cleanup, ensureObserver, withObserverPaused };

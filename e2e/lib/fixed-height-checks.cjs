@@ -69,6 +69,7 @@ async function checkFixedHeights(page, origin) {
 				send("render-page-translation-updates", {
 					translations: first.items.map((item) => ({
 						id: item.id,
+						sourceText: item.text,
 						translation: "This is a long test translation. ".repeat(8),
 					})),
 					targetLanguage: "en",
