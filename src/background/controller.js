@@ -1,4 +1,4 @@
-import { waitForAbortable } from "../shared/abort.js";
+import { createRequestAbortScope, waitForAbortable } from "../shared/abort.js";
 import { translateItemsProgressively } from "../translation/progressive.js";
 import { getSelectionAnchor } from "./selection-anchor.js";
 import { createYoutubeCaptionPrefetch } from "./youtube-caption-prefetch.js";
@@ -116,8 +116,58 @@ export function createBackgroundController(options = {}) {
 		items,
 	) {
 		const session = getPageTranslationSession(tabId, sessionId, frameId);
-		if (!session || !items?.some((item) => item.kind === "subtitle")) {
-			return runPageTranslationItemBatch(tabId, frameId, sessionId, items);
+		if (!session) return;
+		if (!items?.some((item) => item.kind === "subtitle")) {
+			const scope = createRequestAbortScope(session.signal);
+			const control = { signal: scope.signal, subtitle: false };
+			try {
+				await waitForAbortable(
+					runPageTranslationItemBatch(
+						tabId,
+						frameId,
+						sessionId,
+						items,
+						control,
+					),
+					scope.signal,
+				);
+			} catch (error) {
+				if (
+					session.signal.aborted ||
+					!getPageTranslationSession(tabId, sessionId, frameId)
+				)
+					return;
+				if (isTabMessageDisconnectError(error)) {
+					pageTranslationQueue.remove(tabId, frameId);
+					const count = pageTranslationQueue.getTranslatedCount(tabId);
+					setBadge(tabId, count > 0 ? String(count) : "");
+					return;
+				}
+				// Failure UI must not hold the queue when a content endpoint stalls.
+				Promise.resolve(
+					clearPagePlaceholders(
+						tabId,
+						items.map(({ id }) => id),
+						frameId,
+						{ items },
+						sessionId,
+					),
+				).catch(() => {});
+				setBadge(tabId, "!");
+				Promise.resolve(
+					sendToast(
+						tabId,
+						scope.signal.reason?.message === "request-timeout"
+							? "Page translation timed out. Try translating again."
+							: "Some page text could not be translated. Try again.",
+						"error",
+					),
+				).catch(() => {});
+			} finally {
+				control.finished = true;
+				scope.dispose();
+			}
+			return;
 		}
 		const controller = new AbortController();
 		const cancel = () => controller.abort(new Error("cancelled"));
@@ -127,7 +177,11 @@ export function createBackgroundController(options = {}) {
 			() => controller.abort(new Error("request-timeout")),
 			SUBTITLE_DEADLINE_MS,
 		);
-		const control = { signal: controller.signal, reason: "setup-error" };
+		const control = {
+			signal: controller.signal,
+			subtitle: true,
+			reason: "setup-error",
+		};
 		try {
 			await waitForAbortable(
 				runPageTranslationItemBatch(tabId, frameId, sessionId, items, control),
@@ -317,7 +371,7 @@ export function createBackgroundController(options = {}) {
 
 			const { incompleteSegmentIds } = progressiveResult;
 			const configurationFailure =
-				control &&
+				control?.subtitle &&
 				progressiveResult.failures.some((failure) =>
 					isSubtitleConfigurationError(failure.error),
 				);
@@ -335,8 +389,14 @@ export function createBackgroundController(options = {}) {
 					tabId,
 					incompleteSegmentIds,
 					frameId,
-					control ? failureDetails : undefined,
-					control ? sessionId : undefined,
+					control?.subtitle
+						? failureDetails
+						: {
+								items: batchItems.filter((item) =>
+									incompleteSegmentIds.includes(item.id),
+								),
+							},
+					sessionId,
 				);
 				signal?.throwIfAborted();
 			}
@@ -361,7 +421,7 @@ export function createBackgroundController(options = {}) {
 					incompleteSegmentIds.length || progressiveResult.failures.length;
 
 				setBadge(tabId, "!");
-				if (control) return;
+				if (control?.subtitle) return;
 				await sendToast(
 					tabId,
 					`Failed to translate ${failedCount} page item${failedCount === 1 ? "" : "s"}. Successful translations were kept.`,
