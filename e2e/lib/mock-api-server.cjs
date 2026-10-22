@@ -77,9 +77,18 @@ function stringifyMessageContent(content) {
 
 function buildMockTranslationText(text) {
 	const source = String(text || "");
-	const preview = source.slice(0, 48);
+	const placeholders = Array.from(
+		source.matchAll(/__OT_(?:TOKEN|MATH)_\d+__/g),
+	);
+	let previewEnd = 48;
+	for (const match of placeholders) {
+		if (match.index < previewEnd) {
+			previewEnd = Math.max(previewEnd, match.index + match[0].length);
+		}
+	}
+	const preview = source.slice(0, previewEnd);
 	const trailingPlaceholders = Array.from(
-		new Set(source.match(/__OT_(?:TOKEN|MATH)_\d+__/g) || []),
+		new Set(placeholders.map((match) => match[0])),
 	).filter((placeholder) => !preview.includes(placeholder));
 	const suffix =
 		trailingPlaceholders.length > 0 ? ` ${trailingPlaceholders.join(" ")}` : "";

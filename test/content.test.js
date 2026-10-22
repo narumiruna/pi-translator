@@ -259,6 +259,55 @@ test("content inside article headers is no longer treated as unsupported", () =>
 	);
 });
 
+test("short GitHub Markdown comments with links remain readable prose", () => {
+	const selectors = createExtractionSelectorsForProfile(
+		resolveSiteProfile("github.com"),
+	);
+	const element = createFakeElement({
+		tagName: "P",
+		matchedSelectors: [".markdown-body p"],
+		linkTexts: ["CONTRIBUTING.md"],
+		interactiveCount: 1,
+	});
+	const text = "See CONTRIBUTING.md.";
+	assert.ok(scoreCandidateBlock(element, text) < 40);
+	assert.ok(
+		scoreCandidateBlock(element, text, {
+			explicitTextBlockSelector: selectors.EXPLICIT_TEXT_BLOCK_SELECTOR,
+		}) >= 40,
+	);
+});
+
+test("shared class names do not exclude GitHub comments", () => {
+	// A shared__ timeline wrapper matches the broad substring, not share- or share_.
+	for (const relation of ["matchedSelectors", "ancestorSelectors"]) {
+		assert.equal(
+			isUnsupportedElement(
+				createFakeElement({ [relation]: ['[class*="share"]'] }),
+			),
+			false,
+		);
+	}
+});
+
+test("share controls remain unsupported", () => {
+	for (const selector of [
+		".share",
+		".sharing",
+		".social-share",
+		'[class*="share-"]',
+		'[class*="share_"]',
+		'[data-testid*="share"]',
+	]) {
+		for (const relation of ["matchedSelectors", "ancestorSelectors"]) {
+			assert.equal(
+				isUnsupportedElement(createFakeElement({ [relation]: [selector] })),
+				true,
+			);
+		}
+	}
+});
+
 test("navigation and table-of-contents regions are unsupported", () => {
 	assert.equal(
 		isUnsupportedElement(

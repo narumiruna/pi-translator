@@ -10,6 +10,7 @@ import {
 	DISQUS_COMMENT_TEXT_SELECTOR,
 	FINDY_ARTICLE_ROOT_SELECTOR,
 	GITHUB_MAIN_CONTENT_SELECTOR,
+	GITHUB_MARKDOWN_TEXT_SELECTOR,
 	getActiveSiteProfile,
 	normalizeHostname,
 	REDDIT_ROOT_SELECTOR,
@@ -131,6 +132,7 @@ test("site profiles compile into generic content capabilities", () => {
 		{
 			host: "github.com",
 			root: GITHUB_MAIN_CONTENT_SELECTOR,
+			text: GITHUB_MARKDOWN_TEXT_SELECTOR,
 		},
 		{
 			host: "reddit.com",
@@ -307,6 +309,16 @@ test("GitHub extraction excludes pull request sidebars", () => {
 	assert.match(GITHUB_MAIN_CONTENT_SELECTOR, /\.Layout-main/u);
 	assert.match(GITHUB_MAIN_CONTENT_SELECTOR, /SplitPageLayout\.Content/u);
 	assert.doesNotMatch(GITHUB_MAIN_CONTENT_SELECTOR, /Sidebar/u);
+});
+
+test("GitHub Markdown prose receives explicit text-block scoring", () => {
+	const profile = resolveSiteProfile("github.com");
+	const selectors = createExtractionSelectorsForProfile(profile);
+	assert.deepEqual(profile.textBlockSelectors, [GITHUB_MARKDOWN_TEXT_SELECTOR]);
+	assert.equal(
+		selectors.EXPLICIT_TEXT_BLOCK_SELECTOR,
+		".markdown-body p, .markdown-body li",
+	);
 });
 
 test("Reddit extraction stays rooted at the main post and comments region", () => {

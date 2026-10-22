@@ -61,6 +61,8 @@
 
 - YouTube recovery E2E must select the extension worker by URL, then verify stopped/running events and loss of a worker-global marker; YouTube can register its own worker after it, and Chrome can reuse worker target/version IDs after restart. Synthetic MAIN-world video property overrides are not visible in the content-script isolated world; set native media time/rate instead.
 
+- Symptom: GitHub issue bodies translate but every timeline comment is skipped. Cause: `[class*="share"]` also matches GitHub's `shared__` layout wrappers. Fix: match share-control class delimiters (`share-`, `share_`) instead; check both unsupported element and ancestor selectors.
+
 ## TASTE
 - Selection translation UI should default to a compact tooltip-sized card; long content can expand, but the default should prefer density over empty space.
 - Inline page translations should default to a compact, neutral secondary line with a thin accent and explicit translation label; avoid large card backgrounds that overpower host-page hierarchy.

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Issue comments skip translation · Issue #5350 · earendil-works/pi</title>
+		<style>
+			body { font-family: system-ui, sans-serif; line-height: 1.5; margin: 0; }
+			main { margin: 0 auto; max-width: 64rem; padding: 2rem; }
+			[data-component="SplitPageLayout.Content"] { max-width: 44rem; }
+			.shared__KSUE2D { border: 1px solid #bbb; margin-top: 1rem; padding: 1rem; }
+			#deep-comment-wrapper { margin-top: 120rem; }
+		</style>
+	</head>
+	<body>
+		<main>
+			<div data-component="SplitPageLayout.Content">
+				<h1 id="issue-title" data-github-prose>Issue comments skip translation with <code>translatePage()</code></h1>
+				<div class="markdown-body">
+					<p id="issue-body" data-github-prose>The issue title translates, but timeline comments remain in English when I call <code>translatePage()</code> on this page.</p>
+				</div>
+				<div id="timeline">
+					<div class="shared__KSUE2D major__A5_AyP">
+						<div class="markdown-body">
+							<p id="comment-one" data-github-prose>I can reproduce this problem with a clean browser profile. The comment body remains unchanged after the request completes.</p>
+							<p id="comment-two" data-github-prose>The timeline wrapper uses <code>shared__KSUE2D</code>, which is a layout class rather than a share control.</p>
+							<p id="comment-mention" data-github-prose><a href="/maintainer">@maintainer</a> please check.</p>
+							<p id="comment-link" data-github-prose>See <a href="/earendil-works/pi/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
+							<ul>
+								<li>
+									<p id="comment-list" data-github-prose>Check the extraction rules before changing how the translation response is rendered.</p>
+									<ul><li><p id="comment-nested-list" data-github-prose>Keep real share actions excluded while allowing nested comment prose to translate.</p></li></ul>
+								</li>
+							</ul>
+						</div>
+						<div class="share" data-github-ui><p>Share this issue with another contributor using a permanent link.</p></div>
+						<div class="social-share-buttons" data-github-ui><p>Publish this discussion to your social network.</p></div>
+						<div class="share_actions" data-github-ui><p>Copy the issue address or send this comment by email.</p></div>
+					</div>
+					<div id="deep-comment-wrapper" class="shared__KSUE2D major__A5_AyP">
+						<div class="markdown-body"><p id="deep-comment" data-github-prose>This later comment starts below the initial viewport and must translate when the reader scrolls down the discussion.</p></div>
+					</div>
+				</div>
+			</div>
+			<aside data-github-ui><p>Assignees, labels, milestones, and project information belong in the issue sidebar.</p></aside>
+		</main>
+	</body>
+</html>

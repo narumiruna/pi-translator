@@ -10,6 +10,7 @@
 		"e2e:options": "PLAYWRIGHT_MOCK_API=1 node e2e/options-ui.cjs",
 		"e2e:pdf": "PLAYWRIGHT_MOCK_API=1 node e2e/pdf-translation.cjs",
 		"e2e:antirez": "node e2e/antirez-comments.cjs",
+		"e2e:github": "PLAYWRIGHT_MOCK_API=1 node e2e/github-issue-comments.cjs",
 		"e2e:reddit": "PLAYWRIGHT_MOCK_API=1 node e2e/reddit-comments.cjs",
 		"e2e:syosetu": "node e2e/syosetu-directory.cjs",
 		"e2e:youtube": "PLAYWRIGHT_MOCK_API=1 node e2e/youtube-subtitles.cjs",

@@ -4,6 +4,7 @@ import { test, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
+	buildMockTranslationText,
 	buildMockTranslations,
 	createMockApiServer,
 	extractJsonObject,
@@ -95,6 +96,23 @@ test("mock API preserves protected placeholders beyond its text preview", () => 
 	});
 
 	assert.match(translation.translatedText, /__OT_TOKEN_7__/);
+});
+
+test("mock API never splits a protected placeholder at the preview boundary", () => {
+	for (const kind of ["TOKEN", "MATH"]) {
+		for (const start of [35, 40, 47, 48]) {
+			const placeholder = `__OT_${kind}_1__`;
+			const translation = buildMockTranslationText(
+				`${"a".repeat(start)}${placeholder} trailing prose __OT_TOKEN_2__`,
+			);
+			assert.equal(translation.split(placeholder).length - 1, 1);
+			assert.equal(translation.split("__OT_TOKEN_2__").length - 1, 1);
+			assert.doesNotMatch(
+				translation.replace(/__OT_(?:TOKEN|MATH)_\d+__/g, ""),
+				/__OT_/,
+			);
+		}
+	}
 });
 
 test("mock API server exposes models and responses endpoints", async () => {
