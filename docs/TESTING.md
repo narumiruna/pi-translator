@@ -66,6 +66,13 @@
 13. Upgrade a profile with legacy `apiKey`/`baseUrl` settings and confirm the secret moves to local provider credentials, standard OpenAI maps to OpenAI, custom URLs map to **Custom OpenAI-compatible**, and sync storage no longer contains the secret
 14. From a normal page/content context, attempt to open the authentication port and confirm it disconnects without exposing prompts, status, or credentials
 
+## GitHub issue comments
+
+1. Open `https://github.com/earendil-works/pi/issues/5350` and start page translation.
+2. Scroll through the discussion. Confirm that body and comment prose receive inline translations, including comments inside `shared__` timeline wrappers.
+3. Confirm that inline code stays unchanged and that share controls do not receive translations.
+4. After a production build, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:github`. This uses a local fixture and mock provider to check comment coverage, scrolling, dynamic comments, and duplicate notes. It does not verify live-provider output.
+
 ## PDF translation
 
 1. Build and load `dist/chrome`, configure the translation API, and open `https://www.cs.princeton.edu/~chazelle/courses/BIB/jeannette-wing.pdf`

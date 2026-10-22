@@ -9,6 +9,7 @@ const DISQUS_COMMENT_TEXT_SELECTOR = '[data-role="message"] p';
 const FINDY_ARTICLE_ROOT_SELECTOR = ".p-single__wrap";
 const GITHUB_MAIN_CONTENT_SELECTOR =
 	'main .Layout-main, main [data-component="SplitPageLayout.Content"]';
+const GITHUB_MARKDOWN_TEXT_SELECTOR = ".markdown-body p, .markdown-body li";
 const REDDIT_ROOT_SELECTOR = "main";
 const SCHIIT_ARTICLE_ROOT_SELECTOR =
 	"body:where(.faq, .guides) #content-box .product > .pad";
@@ -62,6 +63,7 @@ const SITE_PROFILES = Object.freeze([
 	Object.freeze({
 		id: "github",
 		hosts: Object.freeze(["github.com", "www.github.com"]),
+		textBlockSelectors: Object.freeze([GITHUB_MARKDOWN_TEXT_SELECTOR]),
 		rootSelectors: Object.freeze([GITHUB_MAIN_CONTENT_SELECTOR]),
 	}),
 	Object.freeze({
@@ -172,6 +174,7 @@ export {
 	DISQUS_COMMENT_TEXT_SELECTOR,
 	FINDY_ARTICLE_ROOT_SELECTOR,
 	GITHUB_MAIN_CONTENT_SELECTOR,
+	GITHUB_MARKDOWN_TEXT_SELECTOR,
 	getActiveSiteProfile,
 	normalizeHostname,
 	normalizeSelectorList,

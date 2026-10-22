@@ -200,7 +200,8 @@ const UNSUPPORTED_ANCESTOR_SELECTOR = [
 	'[aria-label*="navigation" i]',
 	'[aria-label*="share" i]',
 	'[aria-label*="table of contents" i]',
-	'[class*="share"]',
+	'[class*="share-"]',
+	'[class*="share_"]',
 	'[data-testid*="share"]',
 ].join(", ");
 const UNSUPPORTED_ELEMENT_SELECTOR = [
@@ -227,7 +228,8 @@ const UNSUPPORTED_ELEMENT_SELECTOR = [
 	'[aria-label*="navigation" i]',
 	'[aria-label*="share" i]',
 	'[aria-label*="table of contents" i]',
-	'[class*="share"]',
+	'[class*="share-"]',
+	'[class*="share_"]',
 	'[data-testid*="share"]',
 ].join(", ");
 const TERMINAL_LIKE_SELECTOR = [
@@ -397,7 +399,9 @@ function scoreCandidateBlock(element, text, options = {}) {
 	const explicitTextBonus = isExplicitTextBlock ? 160 : 0;
 	const readableLinkBonus = isTitleLink ? 320 : 0;
 	const linkPenalty =
-		isHeading || isTitleLink ? linkDensity * 60 : linkDensity * 280;
+		isHeading || isTitleLink || isExplicitTextBlock
+			? linkDensity * 60
+			: linkDensity * 280;
 	const linkCountPenalty =
 		isHeading || isTitleLink ? linkCount * 4 : linkCount * 10;
 

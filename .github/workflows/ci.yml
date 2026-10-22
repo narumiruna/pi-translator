@@ -38,6 +38,9 @@ jobs:
       - name: Run production-artifact smoke tests
         run: PLAYWRIGHT_HEADLESS=1 npm run e2e:mock
 
+      - name: Run production-artifact GitHub issue regression
+        run: PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:github
+
       - name: Run production-artifact PDF regression
         run: PLAYWRIGHT_HEADLESS=1 npm run e2e:pdf
 

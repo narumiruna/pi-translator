@@ -65,6 +65,8 @@
 
 ## Known pitfalls
 
+- [UNREVIEWED] GitHub issue comments use `shared__` timeline wrappers that also match `[class*="share"]`.
+  - Match share-control class delimiters (`share-`, `share_`) in both unsupported element and ancestor selectors so these wrappers do not exclude comment prose.
 - `pi-ai@1.3.0` renames the Azure provider module/factory/ID to `providers/azure`, `azureProvider`, and `azure`; the Responses API adapter ID remains `azure-openai-responses`.
   - Update browser login and endpoint checks with the provider ID.
 - Playwright `fill()` on a newly loaded searchable provider can append to the initial label under CPU load.
