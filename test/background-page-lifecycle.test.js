@@ -100,6 +100,83 @@ afterEach(() => {
 	Api.clearTranslationCache();
 });
 
+for (const fails of [false, true]) {
+	test(`superseded page extraction ${fails ? "failure" : "completion"} cannot remove its replacement`, async () => {
+		const first = deferred();
+		let attempts = 0;
+		const f = fixture({
+			extract: () =>
+				++attempts === 1 ? first.promise : { items: [], totalSegments: 1 },
+		});
+		const oldRun = f.controller.translatePage(tab);
+		await flush();
+		const replacement = await f.controller.translatePage(tab);
+		assert.ok(replacement.sessionId);
+		if (fails) first.reject(new Error("Receiving end does not exist"));
+		else first.resolve({ items: [], totalSegments: 1 });
+		assert.equal((await oldRun).stale, true);
+		assert.equal(
+			f.controller.pageTranslationQueue.get(tab.id).sessionId,
+			replacement.sessionId,
+		);
+		assert.equal(f.platform.sendToast.mock.calls.length, 1);
+		f.controller.removePageTranslationState(tab.id);
+	});
+}
+
+test("navigation during delayed page startup prevents a retired session from starting work", async () => {
+	const extraction = deferred();
+	const f = fixture({ extract: () => extraction.promise });
+	const run = f.controller.translatePage(tab);
+	await flush();
+	f.controller.removePageTranslationState(tab.id);
+	extraction.resolve({ items: [{ id: "late", text: "Late source" }] });
+	assert.equal((await run).stale, true);
+	assert.equal(f.requests.length, 0);
+	assert.equal(f.platform.sendToast.mock.calls.length, 0);
+});
+
+test("replacement settings failure retires only the superseded startup's session", async () => {
+	const extraction = deferred();
+	let loads = 0;
+	const f = fixture({
+		extract: () => extraction.promise,
+		loadSettings: async () => {
+			if (++loads > 1) throw new Error("Settings unavailable");
+			return Settings.DEFAULT_SETTINGS;
+		},
+	});
+	const oldRun = f.controller.translatePage(tab);
+	await flush();
+	const retired = f.controller.pageTranslationQueue.get(tab.id);
+	assert.ok(retired);
+	await assert.rejects(f.controller.translatePage(tab), /Settings unavailable/);
+	assert.equal((await oldRun).stale, true);
+	assert.equal(retired.signal.aborted, true);
+	assert.equal(f.controller.pageTranslationQueue.get(tab.id), null);
+	extraction.resolve({ items: [], totalSegments: 1 });
+	await flush();
+	assert.equal(f.controller.pageTranslationQueue.get(tab.id), null);
+});
+
+test("one frame startup failure keeps the top and other frame sessions", async () => {
+	const f = fixture({
+		frames: [{ frameId: 1 }, { frameId: 2 }],
+		extract: (_message, frame) => {
+			if (frame.frameId === 1) throw new Error("Receiving end does not exist");
+			return { items: [], totalSegments: 1 };
+		},
+	});
+	await f.controller.translatePage(tab);
+	assert.ok(f.controller.pageTranslationQueue.get(tab.id, undefined, 0));
+	assert.equal(
+		f.controller.pageTranslationQueue.get(tab.id, undefined, 1),
+		null,
+	);
+	assert.ok(f.controller.pageTranslationQueue.get(tab.id, undefined, 2));
+	f.controller.removePageTranslationState(tab.id);
+});
+
 test("page teardown aborts active provider work without late rendering or cache writes", async () => {
 	const gate = deferred();
 	let providerSignal;

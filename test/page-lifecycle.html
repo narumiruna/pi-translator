@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Page lifecycle fixture</title></head>
+<body>
+<main>
+<p>Lifecycle source zero contains ordinary readable text for translation and asynchronous session tests.</p>
+<p>Lifecycle source one contains another complete paragraph for stalled request cancellation checks.</p>
+<p>Lifecycle source two remains visible while bounded translation workers wait for a response.</p>
+<p>Lifecycle source three provides enough readable prose to keep another translation worker active.</p>
+<p>Lifecycle source four stays readable when its translation request reaches the batch deadline.</p>
+<p>Lifecycle source five must translate when the other five workers release their stalled requests.</p>
+</main>
+</body>
+</html>

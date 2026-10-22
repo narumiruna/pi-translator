@@ -67,6 +67,7 @@ export function createBackgroundController(options = {}) {
 		setupContextMenus,
 	} = platform;
 	const youtubeStartups = new Map();
+	const pageStartups = new Map();
 	let selectionRequestSequence = 0;
 	function createSelectionRequestId() {
 		selectionRequestSequence += 1;
@@ -288,6 +289,7 @@ export function createBackgroundController(options = {}) {
 					tabId,
 					Messages.renderPagePlaceholders({
 						ids: placeholderIds,
+						sessionId,
 						targetLanguage: session.settings.targetLanguage,
 						...buildTranslationAppearancePayload(session.settings),
 					}),
@@ -513,6 +515,8 @@ export function createBackgroundController(options = {}) {
 
 	function removePageTranslationState(tabId, frameId, preserveStartup = false) {
 		if (!preserveStartup && (!Number.isInteger(frameId) || frameId === 0)) {
+			pageStartups.get(tabId)?.abort(new Error("cancelled"));
+			pageStartups.delete(tabId);
 			youtubeStartups.get(tabId)?.abort(new Error("cancelled"));
 			youtubeStartups.delete(tabId);
 		}
@@ -524,6 +528,55 @@ export function createBackgroundController(options = {}) {
 	}
 
 	async function translatePage(tab, internal = {}) {
+		if (!tab?.id) return runPageTranslationStartup(tab, internal);
+		if (!internal.signal) {
+			youtubeStartups.get(tab.id)?.abort(new Error("cancelled"));
+			youtubeStartups.delete(tab.id);
+		}
+		pageStartups.get(tab.id)?.abort(new Error("cancelled"));
+		const startup = new AbortController();
+		const ownedSessions = new Map();
+		pageStartups.set(tab.id, startup);
+		const cancel = () => startup.abort(internal.signal.reason);
+		if (internal.signal?.aborted) cancel();
+		else internal.signal?.addEventListener("abort", cancel, { once: true });
+		try {
+			return await waitForAbortable(
+				runPageTranslationStartup(tab, {
+					...internal,
+					signal: startup.signal,
+					onSession(session) {
+						ownedSessions.set(session.frameId, session);
+						internal.onSession?.(session);
+					},
+				}),
+				startup.signal,
+			);
+		} catch (error) {
+			for (const session of ownedSessions.values()) {
+				if (
+					getPageTranslationSession(tab.id, session.sessionId, session.frameId)
+				) {
+					removePageTranslationState(tab.id, session.frameId, true);
+				}
+				Promise.resolve(
+					chrome.tabs.sendMessage(
+						tab.id,
+						Messages.clearPendingTranslations({ sessionId: session.sessionId }),
+						getFrameMessageOptions(session.frameId),
+					),
+				).catch(() => {});
+			}
+			if (startup.signal.aborted && !internal.signal?.aborted)
+				return { stale: true };
+			throw error;
+		} finally {
+			internal.signal?.removeEventListener("abort", cancel);
+			if (pageStartups.get(tab.id) === startup) pageStartups.delete(tab.id);
+		}
+	}
+
+	async function runPageTranslationStartup(tab, internal) {
 		const check = () => internal.signal?.throwIfAborted();
 		check();
 		logger?.info("page-translation-start", { tabId: tab?.id });
