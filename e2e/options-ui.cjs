@@ -188,8 +188,396 @@ async function waitForTestReady(page) {
 	});
 }
 
+async function expectModalKeyboard(page, dialog) {
+	const prompt = dialog.locator("#auth-prompt-value");
+	await prompt.waitFor({ state: "visible" });
+	await page.waitForTimeout(100);
+	assert.equal(
+		await prompt.evaluate((element) => document.activeElement === element),
+		true,
+		"Authentication prompt must receive initial focus.",
+	);
+	for (const key of ["Tab", "Shift+Tab"]) {
+		for (let index = 0; index < 6; index += 1) {
+			await page.keyboard.press(key);
+			assert.equal(
+				await dialog.evaluate((element) =>
+					element.contains(document.activeElement),
+				),
+				true,
+				`${key} escaped the authentication dialog.`,
+			);
+		}
+	}
+	await page.locator("#target-language").evaluate((element) => element.focus());
+	assert.equal(
+		await dialog.evaluate((element) =>
+			element.contains(document.activeElement),
+		),
+		true,
+		"Background controls must not accept focus.",
+	);
+	assert.equal(
+		await page
+			.locator("#save-button")
+			.evaluate((element) =>
+				Boolean(element.closest('[aria-hidden="true"], [inert]')),
+			),
+		true,
+		"Background controls must be isolated from assistive technology.",
+	);
+	assert.equal(
+		await page.locator("#save-button").evaluate((element) => {
+			const rect = element.getBoundingClientRect();
+			return element.contains(
+				document.elementFromPoint(
+					rect.x + rect.width / 2,
+					rect.y + rect.height / 2,
+				),
+			);
+		}),
+		false,
+		"Background controls must not receive pointer input.",
+	);
+	assert.equal(
+		await dialog.evaluate((element) => {
+			const rect = element.getBoundingClientRect();
+			return (
+				rect.left >= 0 &&
+				rect.right <= innerWidth &&
+				rect.top >= 0 &&
+				rect.bottom <= innerHeight
+			);
+		}),
+		true,
+		"Authentication dialog must fit in the viewport.",
+	);
+	assert.equal(
+		await dialog.evaluate((element) => getComputedStyle(element).animationName),
+		"none",
+	);
+}
+
+async function expectQuotaRegression(page) {
+	const { STORAGE_KEY, validateSettings } = await import(
+		"../src/shared/settings.js"
+	);
+	const original = await page.evaluate(
+		async () => (await chrome.storage.sync.get("settings")).settings,
+	);
+	const makeSettings = (bytes, text) => {
+		const settings = validateSettings(original).settings;
+		const remaining =
+			bytes - Buffer.byteLength(STORAGE_KEY + JSON.stringify(settings));
+		const count = Math.floor(remaining / Buffer.byteLength(text));
+		settings.systemPromptTemplate +=
+			text.repeat(count) +
+			"x".repeat(remaining - count * Buffer.byteLength(text));
+		assert.equal(
+			Buffer.byteLength(STORAGE_KEY + JSON.stringify(settings)),
+			bytes,
+		);
+		return settings;
+	};
+	try {
+		for (const text of ["x", "漢", "🙂"]) {
+			const boundary = makeSettings(8192, text);
+			const actual = await page.evaluate(async (settings) => {
+				await chrome.storage.sync.set({ settings });
+				const bytes = await chrome.storage.sync.getBytesInUse("settings");
+				try {
+					await chrome.storage.sync.set({
+						settings: {
+							...settings,
+							systemPromptTemplate: `${settings.systemPromptTemplate}x`,
+						},
+					});
+					return { bytes, error: "" };
+				} catch (error) {
+					return { bytes, error: error.message };
+				}
+			}, boundary);
+			assert.equal(actual.bytes, 8192);
+			assert.match(actual.error, /QUOTA_BYTES_PER_ITEM|kQuotaBytesPerItem/u);
+		}
+		await page.evaluate(
+			async (settings) => chrome.storage.sync.set({ settings }),
+			original,
+		);
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await waitForTestReady(page);
+		await page.evaluate(() => {
+			const set = chrome.storage.sync.set.bind(chrome.storage.sync);
+			window.optionsStorageWrites = 0;
+			chrome.storage.sync.set = (...args) => {
+				window.optionsStorageWrites += 1;
+				return set(...args);
+			};
+		});
+		await page.getByRole("tab", { name: "Prompts" }).click();
+		for (const bytes of [8193, 9412]) {
+			const oversized = makeSettings(bytes, "漢");
+			await page
+				.locator("#system-prompt-template")
+				.fill(oversized.systemPromptTemplate);
+			await page.locator("#save-button").click();
+			await waitFor(
+				async () => !(await page.locator("#save-button").isDisabled()),
+				{ timeoutMessage: "Quota save did not settle." },
+			);
+			assert.match(
+				await page.locator("#form-status").textContent(),
+				new RegExp(`${bytes}.*8192`, "u"),
+			);
+			assert.match(
+				await page.locator("#form-status").textContent(),
+				/Shorten.*prompt.*domain/u,
+			);
+			assert.equal(
+				await page.locator("#system-prompt-template").inputValue(),
+				oversized.systemPromptTemplate,
+			);
+			assert.deepEqual(
+				await page.evaluate(
+					async () => (await chrome.storage.sync.get("settings")).settings,
+				),
+				original,
+			);
+			assert.equal(
+				await page.evaluate(() => window.optionsStorageWrites),
+				0,
+				"Oversized settings must be rejected before the storage write.",
+			);
+			assert.match(
+				await page.locator("#save-state").textContent(),
+				/Unsaved changes/u,
+			);
+		}
+		const boundary = makeSettings(8192, "🙂");
+		await page
+			.locator("#system-prompt-template")
+			.fill(boundary.systemPromptTemplate);
+		await page.locator("#save-button").click();
+		await waitFor(
+			async () =>
+				/Settings saved/u.test(
+					await page.locator("#form-status").textContent(),
+				),
+			{ timeoutMessage: "Boundary settings were not saved." },
+		);
+		assert.equal(
+			await page.evaluate(async () =>
+				chrome.storage.sync.getBytesInUse("settings"),
+			),
+			8192,
+		);
+		await page.evaluate(() => {
+			const set = chrome.storage.sync.set.bind(chrome.storage.sync);
+			// Force a native Chrome storage rejection for an otherwise valid draft.
+			// The rejected probe item is never stored.
+			chrome.storage.sync.set = () =>
+				set({ "options-storage-failure-probe": "x".repeat(8193) });
+		});
+		await page
+			.locator("#system-prompt-template")
+			.fill(original.systemPromptTemplate);
+		await page.locator("#save-button").click();
+		await waitFor(
+			async () => !(await page.locator("#save-button").isDisabled()),
+			{ timeoutMessage: "Storage failure did not settle." },
+		);
+		assert.match(
+			await page.locator("#form-status").textContent(),
+			/Settings could not be saved.*(?:QUOTA_BYTES_PER_ITEM|kQuotaBytesPerItem)/u,
+		);
+		assert.doesNotMatch(
+			await page.locator("#form-status").textContent(),
+			/Check permissions/u,
+		);
+		assert.equal(
+			await page.locator("#system-prompt-template").inputValue(),
+			original.systemPromptTemplate,
+		);
+		assert.deepEqual(
+			await page.evaluate(
+				async () => (await chrome.storage.sync.get("settings")).settings,
+			),
+			boundary,
+		);
+		assert.match(
+			await page.locator("#save-state").textContent(),
+			/Unsaved changes/u,
+		);
+		assert.deepEqual(
+			await page.evaluate(async () =>
+				chrome.storage.sync.get("options-storage-failure-probe"),
+			),
+			{},
+		);
+		console.log(
+			"Options quota regression passed: Chrome accepts 8192 UTF-8 bytes and rejects 8193 for ASCII, CJK, and emoji; oversized drafts and storage failures preserve settings.",
+		);
+	} finally {
+		// Reload removes the test-only storage wrapper before restoring the fixture.
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await page.evaluate(
+			async (settings) => chrome.storage.sync.set({ settings }),
+			original,
+		);
+	}
+}
+
+async function expectAuthenticationRegression(context, optionsUrl, config) {
+	const page = await context.newPage();
+	try {
+		// Synthetic account events exercise the real Options UI without opening a provider or signing in.
+		await page.addInitScript(() => {
+			// The synthetic port does not need provider setup access.
+			chrome.permissions.request = async () => true;
+			const connect = chrome.runtime.connect.bind(chrome.runtime);
+			chrome.runtime.connect = (options) => {
+				if (options.name !== "vibe-translator-auth") return connect(options);
+				let listener;
+				let requestId;
+				window.emitOptionsAuth = (message) =>
+					listener?.({ requestId, ...message });
+				return {
+					onMessage: {
+						addListener: (callback) => {
+							listener = callback;
+						},
+					},
+					onDisconnect: { addListener: () => {} },
+					postMessage(message) {
+						if (message.type === "login") {
+							requestId = message.requestId;
+							queueMicrotask(() =>
+								window.emitOptionsAuth({
+									type: "prompt",
+									promptId: "synthetic-prompt",
+									prompt: {
+										type: "secret",
+										message: "Synthetic account verification code",
+									},
+								}),
+							);
+						}
+						if (message.type === "cancel") {
+							window.optionsAuthCancelled = true;
+							queueMicrotask(() =>
+								window.emitOptionsAuth({
+									type: "result",
+									ok: false,
+									error: "Authentication cancelled.",
+								}),
+							);
+						}
+					},
+				};
+			};
+		});
+		await page.goto(optionsUrl, { waitUntil: "domcontentloaded" });
+		await waitForTestReady(page);
+		await page.locator("#provider").click();
+		await page.locator("#provider").fill("openrouter");
+		await page.getByRole("option", { name: /^OpenRouter \(/u }).click();
+		const trigger = page.getByRole("button", {
+			name: "Configure authentication",
+		});
+		for (const colorScheme of ["light", "dark"]) {
+			await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+			await page.setViewportSize({
+				width: colorScheme === "dark" ? 320 : 1280,
+				height: 900,
+			});
+			await trigger.click();
+			const dialog = page.getByRole("dialog");
+			await expectModalKeyboard(page, dialog);
+			await expectNoSeriousAccessibilityFindings(page);
+			await takeOptionsScreenshot(
+				page,
+				config.artifactsDir,
+				`options-auth-method-${colorScheme}.png`,
+			);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+			assert.equal(
+				await trigger.evaluate((element) => document.activeElement === element),
+				true,
+			);
+			await trigger.click();
+			await dialog.locator("select").selectOption("oauth");
+			await dialog.getByRole("button", { name: "Continue" }).click();
+			await expectModalKeyboard(page, dialog);
+			assert.equal(await dialog.locator("input").inputValue(), "");
+			await dialog.locator("input").fill("synthetic-account-code");
+			await page.evaluate(() =>
+				window.emitOptionsAuth({
+					type: "event",
+					event: {
+						type: "device_code",
+						userCode: "SYNTHETIC",
+						verificationUri: "https://example.invalid",
+					},
+				}),
+			);
+			await dialog.locator("input").waitFor({ state: "hidden" });
+			await expectNoSeriousAccessibilityFindings(page);
+			await takeOptionsScreenshot(
+				page,
+				config.artifactsDir,
+				`options-auth-account-${colorScheme}.png`,
+			);
+			if (colorScheme === "dark") {
+				await page.keyboard.press("Escape");
+			} else {
+				await page.evaluate(() =>
+					window.emitOptionsAuth({
+						type: "event",
+						event: {
+							type: "auth_url",
+							url: "https://example.invalid/login",
+							instructions: "Synthetic browser sign-in",
+						},
+					}),
+				);
+				await dialog
+					.getByText("Synthetic browser sign-in")
+					.waitFor({ state: "visible" });
+				await dialog.getByRole("button", { name: "Cancel" }).click();
+			}
+			await dialog.waitFor({ state: "hidden" });
+			await waitFor(async () => trigger.isEnabled(), {
+				timeoutMessage: "Authentication cancel did not settle.",
+			});
+			assert.equal(
+				await page.evaluate(() => window.optionsAuthCancelled),
+				true,
+			);
+			assert.equal(
+				await trigger.evaluate((element) => document.activeElement === element),
+				true,
+			);
+		}
+	} finally {
+		await page.close();
+	}
+}
+
 async function main() {
 	const config = getConfig();
+	assert.equal(
+		config.useMockApi,
+		true,
+		"Options E2E requires the local mock API.",
+	);
+	assert.equal(
+		config.userDataDir,
+		"",
+		"Options E2E requires a temporary Chrome profile.",
+	);
+	config.apiKey = "mock-api-key";
+	config.model = "mock-model";
 	const mockApiServer = await createMockApiServer();
 	let runState;
 
@@ -201,6 +589,36 @@ async function main() {
 			requiredGlobals: true,
 			runConnectionTest: false,
 		});
+
+		const optionsUrl = await getOptionsUrl(
+			runState.context,
+			runState.extensionId,
+		);
+		const regressions = [];
+		const quotaPage = await runState.context.newPage();
+		try {
+			await quotaPage.goto(optionsUrl, { waitUntil: "domcontentloaded" });
+			await waitForTestReady(quotaPage);
+			await expectQuotaRegression(quotaPage);
+		} catch (error) {
+			regressions.push(error);
+		} finally {
+			await quotaPage.close();
+		}
+		try {
+			await expectAuthenticationRegression(
+				runState.context,
+				optionsUrl,
+				config,
+			);
+		} catch (error) {
+			regressions.push(error);
+		}
+		assert.deepEqual(
+			regressions.map((error) => error.message),
+			[],
+			"Options quota and keyboard regressions must pass.",
+		);
 
 		const page = await runState.context.newPage();
 		const pageErrors = [];
@@ -367,16 +785,68 @@ async function main() {
 			/configured with an API key/u,
 		);
 		assert.equal(await page.locator('input[type="password"]').count(), 0);
-		await page.getByRole("button", { name: "Change authentication" }).click();
+		const authTrigger = page.getByRole("button", {
+			name: "Change authentication",
+		});
 		const authDialog = page.getByRole("dialog", {
 			name: "Configure Custom OpenAI-compatible",
 		});
-		await authDialog
-			.locator('input[type="password"]')
-			.fill("replacement-secret");
-		await authDialog.getByRole("button", { name: "Cancel" }).click();
-		await waitFor(async () => (await authDialog.count()) === 0, {
-			timeoutMessage: "Cancelled authentication dialog did not close.",
+		for (const colorScheme of ["light", "dark"]) {
+			await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+			await page.setViewportSize({
+				width: colorScheme === "dark" ? 320 : 1280,
+				height: 900,
+			});
+			await authTrigger.click();
+			await expectModalKeyboard(page, authDialog);
+			assert.equal(
+				await authDialog.locator('input[type="password"]').inputValue(),
+				"",
+			);
+			await authDialog
+				.locator('input[type="password"]')
+				.fill("replacement-secret");
+			await expectNoSeriousAccessibilityFindings(page);
+			await takeOptionsScreenshot(
+				page,
+				config.artifactsDir,
+				`options-auth-api-key-${colorScheme}.png`,
+			);
+			if (colorScheme === "light")
+				await authDialog.getByRole("button", { name: "Cancel" }).click();
+			else await page.keyboard.press("Escape");
+			await authDialog.waitFor({ state: "hidden" });
+			await waitFor(async () => authTrigger.isEnabled(), {
+				timeoutMessage: "Cancelled authentication did not settle.",
+			});
+			assert.equal(
+				await authTrigger.evaluate(
+					(element) => document.activeElement === element,
+				),
+				true,
+			);
+		}
+		await page.emulateMedia({
+			colorScheme: "light",
+			reducedMotion: "no-preference",
+		});
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await authTrigger.click();
+		await authDialog.locator('input[type="password"]').fill(config.apiKey);
+		await authDialog.getByRole("button", { name: "Continue" }).click();
+		await authDialog.waitFor({ state: "hidden" });
+		await waitFor(async () => authTrigger.isEnabled(), {
+			timeoutMessage: "API key authentication did not settle.",
+		});
+		await authTrigger.click();
+		assert.equal(
+			await authDialog.locator('input[type="password"]').inputValue(),
+			"",
+		);
+		await page.keyboard.press("Escape");
+		await authDialog.waitFor({ state: "hidden" });
+		await waitFor(async () => authTrigger.isEnabled(), {
+			timeoutMessage: "Reopened API key prompt did not cancel.",
 		});
 		assert.match(
 			(await page.locator("#auth-status").textContent()) || "",

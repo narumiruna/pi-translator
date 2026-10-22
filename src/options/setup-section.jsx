@@ -5,6 +5,8 @@ import {
 	VideoIcon,
 } from "@radix-ui/react-icons";
 import { Text } from "@radix-ui/themes";
+import { Dialog } from "radix-ui";
+import { useEffect, useRef } from "react";
 
 import { BASIC_THINKING_LEVELS } from "../shared/settings.js";
 import {
@@ -17,11 +19,14 @@ import {
 } from "./components.jsx";
 
 function AuthenticationDialog({ flow, onCancel, onOpenUrl, onSubmit }) {
-	if (!flow.open) {
-		return null;
-	}
-
+	const promptRef = useRef(null);
 	const prompt = flow.prompt;
+
+	useEffect(() => {
+		if (flow.open && prompt) {
+			promptRef.current?.focus();
+		}
+	}, [flow.open, prompt]);
 	const authUrl = flow.event?.type === "auth_url" ? flow.event : null;
 	const deviceCode = flow.event?.type === "device_code" ? flow.event : null;
 	const info = ["info", "progress"].includes(flow.event?.type)
@@ -29,121 +34,151 @@ function AuthenticationDialog({ flow, onCancel, onOpenUrl, onSubmit }) {
 		: null;
 
 	return (
-		<div className="auth-dialog-backdrop" role="presentation">
-			<section
-				aria-labelledby="auth-dialog-title"
-				aria-modal="true"
-				className="auth-dialog"
-				role="dialog"
-			>
-				<h2 id="auth-dialog-title">Configure {flow.providerName}</h2>
-				{authUrl ? (
-					<div className="auth-url-flow">
-						<Text as="p" size="2">
-							{authUrl.instructions ||
-								"Continue authentication in your browser."}
-						</Text>
-						<Button onClick={() => onOpenUrl(authUrl.url)} type="button">
-							Open sign-in page
-						</Button>
-					</div>
-				) : null}
-				{prompt ? (
-					<form onSubmit={onSubmit}>
-						<label className="field" htmlFor="auth-prompt-value">
-							<span className="field-label">{prompt.message}</span>
-							{prompt.type === "select" ? (
-								<select
-									className="native-select"
-									id="auth-prompt-value"
-									onChange={(event) => flow.setValue(event.target.value)}
-									value={flow.value}
-								>
-									{prompt.options.map((option) => (
-										<option key={option.id} value={option.id}>
-											{option.label}
-											{option.description ? ` — ${option.description}` : ""}
-										</option>
-									))}
-								</select>
-							) : (
-								<input
-									autoComplete="off"
-									className="auth-prompt-input"
-									id="auth-prompt-value"
-									onChange={(event) => flow.setValue(event.target.value)}
-									placeholder={prompt.placeholder || ""}
-									type={prompt.type === "secret" ? "password" : "text"}
-									value={flow.value}
-								/>
-							)}
-						</label>
-						<div className="auth-dialog-actions">
+		<Dialog.Root
+			open={flow.open}
+			onOpenChange={(open) => {
+				if (!open) onCancel();
+			}}
+		>
+			<Dialog.Portal container={document.querySelector(".radix-themes")}>
+				<Dialog.Overlay className="auth-dialog-backdrop" />
+				<Dialog.Content
+					className="auth-dialog"
+					aria-describedby={undefined}
+					onCloseAutoFocus={(event) => event.preventDefault()}
+					onInteractOutside={(event) => event.preventDefault()}
+				>
+					<Dialog.Title asChild>
+						<h2>Configure {flow.providerName}</h2>
+					</Dialog.Title>
+					{authUrl ? (
+						<div className="auth-url-flow">
+							<Text as="p" size="2">
+								{authUrl.instructions ||
+									"Continue authentication in your browser."}
+							</Text>
 							<Button
-								color="gray"
-								onClick={onCancel}
-								type="button"
-								variant="soft"
-							>
-								Cancel
-							</Button>
-							<Button type="submit">Continue</Button>
-						</div>
-					</form>
-				) : null}
-				{deviceCode ? (
-					<div className="device-code-flow">
-						<Text as="p" size="2">
-							Open the sign-in page and enter this one-time code:
-						</Text>
-						<output className="device-code">{deviceCode.userCode}</output>
-						<div className="auth-dialog-actions">
-							<Button
-								color="gray"
-								onClick={onCancel}
-								type="button"
-								variant="soft"
-							>
-								Cancel
-							</Button>
-							<Button
-								onClick={() => onOpenUrl(deviceCode.verificationUri)}
+								highContrast
+								onClick={() => onOpenUrl(authUrl.url)}
 								type="button"
 							>
 								Open sign-in page
 							</Button>
+							{!prompt ? (
+								<Button
+									color="gray"
+									onClick={onCancel}
+									type="button"
+									variant="soft"
+								>
+									Cancel
+								</Button>
+							) : null}
 						</div>
-					</div>
-				) : null}
-				{!prompt && !deviceCode && !authUrl ? (
-					<div>
-						<Text as="p" aria-live="polite" size="2">
-							{info?.message || "Starting authentication…"}
-						</Text>
-						{info?.links?.map((link) => (
-							<Button
-								key={link.url}
-								onClick={() => onOpenUrl(link.url)}
-								type="button"
-								variant="soft"
-							>
-								{link.label || "Open documentation"}
-							</Button>
-						))}
-						<div className="auth-dialog-actions">
-							<Button
-								color="gray"
-								onClick={onCancel}
-								type="button"
-								variant="soft"
-							>
-								Cancel
-							</Button>
+					) : null}
+					{prompt ? (
+						<form onSubmit={onSubmit}>
+							<label className="field" htmlFor="auth-prompt-value">
+								<span className="field-label">{prompt.message}</span>
+								{prompt.type === "select" ? (
+									<select
+										className="native-select"
+										ref={promptRef}
+										id="auth-prompt-value"
+										onChange={(event) => flow.setValue(event.target.value)}
+										value={flow.value}
+									>
+										{prompt.options.map((option) => (
+											<option key={option.id} value={option.id}>
+												{option.label}
+												{option.description ? ` — ${option.description}` : ""}
+											</option>
+										))}
+									</select>
+								) : (
+									<input
+										autoComplete="off"
+										className="auth-prompt-input"
+										ref={promptRef}
+										key={prompt.type}
+										id="auth-prompt-value"
+										onChange={(event) => flow.setValue(event.target.value)}
+										placeholder={prompt.placeholder || ""}
+										type={prompt.type === "secret" ? "password" : "text"}
+										value={flow.value}
+									/>
+								)}
+							</label>
+							<div className="auth-dialog-actions">
+								<Button
+									color="gray"
+									onClick={onCancel}
+									type="button"
+									variant="soft"
+								>
+									Cancel
+								</Button>
+								<Button highContrast type="submit">
+									Continue
+								</Button>
+							</div>
+						</form>
+					) : null}
+					{deviceCode ? (
+						<div className="device-code-flow">
+							<Text as="p" size="2">
+								Open the sign-in page and enter this one-time code:
+							</Text>
+							<output className="device-code">{deviceCode.userCode}</output>
+							<div className="auth-dialog-actions">
+								<Button
+									color="gray"
+									onClick={onCancel}
+									type="button"
+									variant="soft"
+								>
+									Cancel
+								</Button>
+								<Button
+									highContrast
+									onClick={() => onOpenUrl(deviceCode.verificationUri)}
+									type="button"
+								>
+									Open sign-in page
+								</Button>
+							</div>
 						</div>
-					</div>
-				) : null}
-			</section>
-		</div>
+					) : null}
+					{!prompt && !deviceCode && !authUrl ? (
+						<div>
+							<Text as="p" aria-live="polite" size="2">
+								{info?.message || "Starting authentication…"}
+							</Text>
+							{info?.links?.map((link) => (
+								<Button
+									key={link.url}
+									onClick={() => onOpenUrl(link.url)}
+									type="button"
+									variant="soft"
+								>
+									{link.label || "Open documentation"}
+								</Button>
+							))}
+							<div className="auth-dialog-actions">
+								<Button
+									color="gray"
+									onClick={onCancel}
+									type="button"
+									variant="soft"
+								>
+									Cancel
+								</Button>
+							</div>
+						</div>
+					) : null}
+				</Dialog.Content>
+			</Dialog.Portal>
+		</Dialog.Root>
 	);
 }
 

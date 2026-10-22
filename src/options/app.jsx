@@ -88,6 +88,7 @@ function OptionsApp() {
 	const operations = useRef({ save: false, test: false });
 	const permissionRequest = useRef(0);
 	const promptResolution = useRef(null);
+	const authTrigger = useRef(null);
 
 	draftRef.current = draft;
 
@@ -148,6 +149,13 @@ function OptionsApp() {
 			setFocusTarget("");
 		}
 	}, [focusTarget]);
+
+	useEffect(() => {
+		if (!authFlow.open && !authBusy && authTrigger.current) {
+			authTrigger.current.focus();
+			authTrigger.current = null;
+		}
+	}, [authFlow.open, authBusy]);
 
 	function revealInvalidField(id) {
 		const field = document.getElementById(id);
@@ -306,7 +314,7 @@ function OptionsApp() {
 		}
 	}
 
-	function handleAuthenticate() {
+	function handleAuthenticate(event) {
 		if (authBusy) {
 			return;
 		}
@@ -320,6 +328,7 @@ function OptionsApp() {
 			return;
 		}
 
+		authTrigger.current = event.currentTarget;
 		setAuthBusy(true);
 		setBanner(null);
 		if (methods.length === 1) {
