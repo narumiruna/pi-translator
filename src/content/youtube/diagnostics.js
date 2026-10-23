@@ -4,12 +4,15 @@ const CAPTION_SEGMENT_SELECTOR =
 	"#ytp-caption-window-container .ytp-caption-segment";
 const MAX_EVENTS = 30;
 const MAX_TRACE_SAMPLES = 120;
+const RECENT_HEALTH_WINDOW_MS = 10_000;
+const RECENT_DISCARD_THRESHOLD = 3;
 const NOTABLE_EVENT_STAGES = new Set([
 	"api-error",
 	"background-error",
 	"caption-timeout",
 	"message-error",
 	"prefetch-fallback",
+	"prefetch-attempts",
 	"queue-error",
 	"session-lost",
 	"recovery-attempt",
@@ -129,7 +132,7 @@ function collectYoutubeDiagnostics(options = {}) {
 function diagnoseYoutubePipeline(snapshot = {}) {
 	const issues = [];
 	const captionTrack = snapshot.captionTrack || {};
-	const captionTrace = snapshot.captionTrace || {};
+	const recentHealth = snapshot.captionTrace?.recentHealth || {};
 	const pipeline = snapshot.pipeline || {};
 
 	if (snapshot.recovery?.exhausted) {
@@ -155,14 +158,13 @@ function diagnoseYoutubePipeline(snapshot = {}) {
 	if (
 		Number(snapshot.visibleCaptionCharacters) > 0 &&
 		Number(pipeline.readyNoteCount) === 0 &&
-		Number(captionTrace.visibleFallbacks) > 0 &&
-		Number(captionTrace.renderedResults) === 0 &&
-		Number(captionTrace.supersededResults) >= 3
+		!recentHealth.hasSuccessfulRender &&
+		Number(recentHealth.discardedFallbacksAtLeast) >= RECENT_DISCARD_THRESHOLD
 	) {
 		issues.push({
 			code: "caption-churn-starvation",
 			detail:
-				"Visible captions are changing faster than fallback translations can render.",
+				"At least three fallback results were discarded in the last 10 seconds with no successful render. failureCount counts API error events, not render health.",
 		});
 	}
 
@@ -222,6 +224,10 @@ function createDiagnosticStore() {
 function createCaptionTraceStore(options = {}) {
 	const limit = normalizeTraceLimit(options.limit);
 	const samples = [];
+	const now = options.now || (() => performance.now());
+	// Only the latest three discards are needed to test the starvation threshold.
+	const recentDiscards = [];
+	let lastSuccessfulRender = null;
 	const counters = {
 		cachedResults: 0,
 		exactCacheHits: 0,
@@ -248,6 +254,27 @@ function createCaptionTraceStore(options = {}) {
 			samples.splice(0, samples.length - limit);
 		}
 		return cloneSample(sample);
+	}
+
+	function resetRecentHealth() {
+		recentDiscards.length = 0;
+		lastSuccessfulRender = null;
+	}
+
+	function getRecentHealth(at = now()) {
+		const cutoff = at - RECENT_HEALTH_WINDOW_MS;
+
+		while (recentDiscards.length > 0 && recentDiscards[0] <= cutoff) {
+			recentDiscards.shift();
+		}
+		if (lastSuccessfulRender !== null && lastSuccessfulRender <= cutoff) {
+			lastSuccessfulRender = null;
+		}
+		return {
+			discardedFallbacksAtLeast: recentDiscards.length,
+			hasSuccessfulRender: lastSuccessfulRender !== null,
+			windowMs: RECENT_HEALTH_WINDOW_MS,
+		};
 	}
 
 	function countSample(sample) {
@@ -299,6 +326,29 @@ function createCaptionTraceStore(options = {}) {
 			return append(sample);
 		},
 		addOutcomes(outcomes = {}) {
+			const at = now();
+			const discarded = Math.min(
+				RECENT_DISCARD_THRESHOLD,
+				Math.floor(
+					normalizeNonNegativeNumber(
+						outcomes.fallbackDiscarded ?? outcomes.superseded,
+					),
+				),
+			);
+
+			getRecentHealth(at);
+			if (normalizeNonNegativeNumber(outcomes.rendered) > 0) {
+				lastSuccessfulRender = at;
+			}
+			for (let index = 0; index < discarded; index += 1) {
+				recentDiscards.push(at);
+			}
+			if (recentDiscards.length > RECENT_DISCARD_THRESHOLD) {
+				recentDiscards.splice(
+					0,
+					recentDiscards.length - RECENT_DISCARD_THRESHOLD,
+				);
+			}
 			for (const [counter, value] of [
 				["cachedResults", outcomes.cached],
 				["provisionalResults", outcomes.provisional],
@@ -308,10 +358,15 @@ function createCaptionTraceStore(options = {}) {
 			]) {
 				counters[counter] += Math.floor(normalizeNonNegativeNumber(value));
 			}
-			return { ...counters, sampleCount: samples.length };
+			return {
+				...counters,
+				recentHealth: getRecentHealth(at),
+				sampleCount: samples.length,
+			};
 		},
 		clear() {
 			samples.length = 0;
+			resetRecentHealth();
 			for (const key of Object.keys(counters)) {
 				counters[key] = 0;
 			}
@@ -320,8 +375,13 @@ function createCaptionTraceStore(options = {}) {
 			return samples.map(cloneSample);
 		},
 		getSummary() {
-			return { ...counters, sampleCount: samples.length };
+			return {
+				...counters,
+				recentHealth: getRecentHealth(),
+				sampleCount: samples.length,
+			};
 		},
+		resetRecentHealth,
 	};
 }
 

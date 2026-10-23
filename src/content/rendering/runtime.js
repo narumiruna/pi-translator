@@ -665,6 +665,11 @@ export function createContentRenderer(options = {}) {
 					supersededIds: new Set(),
 					supersededItems: new Map(),
 				};
+		const fallbackTargetIds = new Set(
+			[...fallbackSettlements.settledIds].filter(
+				(id) => !fallbackSettlements.invalidatedIds?.has(id),
+			),
+		);
 		const reboundSources = new Set();
 		let rendered = 0;
 		let rebound = 0;
@@ -672,6 +677,7 @@ export function createContentRenderer(options = {}) {
 		let stale = 0;
 		let cached = 0;
 		let superseded = 0;
+		let fallbackDiscarded = 0;
 		let timedPrefix = 0;
 		let missingTarget = 0;
 
@@ -685,28 +691,60 @@ export function createContentRenderer(options = {}) {
 			const currentTimeMs = Math.max(0, Number(video?.currentTime) || 0) * 1000;
 
 			for (const translationItem of payload.translations || []) {
-				if (fallbackSettlements.supersededIds.has(translationItem.id)) {
+				const boundSource = document.querySelector(
+					`[${SOURCE_ATTR}="${translationItem.id}"]`,
+				);
+				const isSuperseded = fallbackSettlements.supersededIds.has(
+					translationItem.id,
+				);
+				const isFallback = fallbackSettlements.settledIds.has(
+					translationItem.id,
+				);
+				if (
+					isSuperseded ||
+					(isFallback &&
+						(!boundSource ||
+							getSegmentContent(boundSource).text !==
+								translationItem.sourceText))
+				) {
 					const refresh = SubtitleApi.resolveProgressiveSubtitleRefresh?.(
 						ACTIVE_SITE_PROFILE,
 						captionSources,
 						translationItem,
-						fallbackSettlements.supersededItems.get(translationItem.id),
+						isSuperseded
+							? fallbackSettlements.supersededItems.get(translationItem.id)
+							: { id: translationItem.id, text: translationItem.sourceText },
 						(source) => getSegmentContent(source).text,
 						SOURCE_ATTR,
 					);
 
-					translationMap.delete(translationItem.id);
-					if (!refresh) {
-						superseded += 1;
+					if (
+						refresh &&
+						!reboundSources.has(refresh.source) &&
+						refresh.source.getAttribute(TRANSLATED_ATTR) !== "true"
+					) {
+						translationMap.delete(translationItem.id);
+						refresh.source.setAttribute(SOURCE_ATTR, refresh.translation.id);
+						rememberSourceText(
+							refresh.source,
+							getSegmentContent(refresh.source).text,
+						);
+						translationMap.set(refresh.translation.id, refresh.translation);
+						if (fallbackTargetIds.has(translationItem.id))
+							fallbackTargetIds.add(refresh.translation.id);
+						reboundSources.add(refresh.source);
+						provisional += 1;
 						continue;
 					}
-					translationMap.set(refresh.translation.id, refresh.translation);
-					provisional += 1;
-					continue;
+					if (isSuperseded || refresh) {
+						translationMap.delete(translationItem.id);
+						superseded += 1;
+						if (fallbackTargetIds.has(translationItem.id))
+							fallbackDiscarded += 1;
+						continue;
+					}
 				}
-				if (
-					document.querySelector(`[${SOURCE_ATTR}="${translationItem.id}"]`)
-				) {
+				if (boundSource) {
 					continue;
 				}
 
@@ -723,6 +761,8 @@ export function createContentRenderer(options = {}) {
 					translationMap.delete(translationItem.id);
 					if (fallbackSettlements.settledIds.has(translationItem.id)) {
 						superseded += 1;
+						if (fallbackTargetIds.has(translationItem.id))
+							fallbackDiscarded += 1;
 					} else if (Number.isFinite(Number(translationItem.cueStartMs))) {
 						cached += 1;
 					} else {
@@ -755,6 +795,8 @@ export function createContentRenderer(options = {}) {
 				if (claimedTranslation) {
 					translationMap.delete(translationItem.id);
 					translationMap.set(claimedTranslation.id, claimedTranslation);
+					if (fallbackTargetIds.has(translationItem.id))
+						fallbackTargetIds.add(claimedTranslation.id);
 					reboundSources.add(matchingSource);
 					continue;
 				}
@@ -782,6 +824,7 @@ export function createContentRenderer(options = {}) {
 				translationItem.sourceText !== getSegmentContent(element).text
 			) {
 				stale += 1;
+				if (fallbackTargetIds.has(translationItem.id)) fallbackDiscarded += 1;
 				continue;
 			}
 
@@ -812,6 +855,7 @@ export function createContentRenderer(options = {}) {
 				}
 			} else {
 				missingTarget += 1;
+				if (fallbackTargetIds.has(translationItem.id)) fallbackDiscarded += 1;
 			}
 		}
 
@@ -822,6 +866,7 @@ export function createContentRenderer(options = {}) {
 				{
 					outcomes: {
 						delivered: payload.sessionId ? receivedCount : 0,
+						fallbackDiscarded,
 						cached,
 						provisional,
 						rendered,

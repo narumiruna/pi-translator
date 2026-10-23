@@ -223,9 +223,14 @@ test("YouTube diagnostics identify caption-churn starvation", () => {
 				timedTrackAvailable: true,
 			},
 			captionTrace: {
-				renderedResults: 0,
+				renderedResults: 26,
 				supersededResults: 16,
 				visibleFallbacks: 19,
+				recentHealth: {
+					discardedFallbacksAtLeast: 3,
+					hasSuccessfulRender: false,
+					windowMs: 10_000,
+				},
 			},
 			pipeline: { readyNoteCount: 0 },
 			visibleCaptionCharacters: 77,
@@ -240,12 +245,151 @@ test("YouTube diagnostics identify caption-churn starvation", () => {
 				{
 					code: "caption-churn-starvation",
 					detail:
-						"Visible captions are changing faster than fallback translations can render.",
+						"At least three fallback results were discarded in the last 10 seconds with no successful render. failureCount counts API error events, not render health.",
 				},
 			],
 			status: "degraded",
 		},
 	);
+});
+
+function diagnoseTrace(trace, overrides = {}) {
+	return YoutubeDiagnostics.diagnoseYoutubePipeline({
+		captionTrace: trace.getSummary(),
+		failureCount: 0,
+		pipeline: { readyNoteCount: 0 },
+		visibleCaptionCharacters: 77,
+		...overrides,
+	});
+}
+
+test("recent caption health detects starvation after earlier success and recovers", () => {
+	let now = 0;
+	const trace = YoutubeDiagnostics.createCaptionTraceStore({ now: () => now });
+
+	trace.addOutcomes({ rendered: 26 });
+	for (now = 1000; now <= 3000; now += 1000) {
+		trace.addOutcomes({ fallbackDiscarded: 1, superseded: 1 });
+	}
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	now = 10_000;
+	const diagnosis = diagnoseTrace(trace);
+	assert.equal(trace.getSummary().renderedResults, 26);
+	assert.equal(diagnosis.issues[0].code, "caption-churn-starvation");
+	// A pause does not hide genuine recent discarded outcomes.
+	assert.equal(
+		diagnoseTrace(trace, { playback: { paused: true } }).status,
+		"degraded",
+	);
+	assert.match(
+		diagnosis.issues[0].detail,
+		/failureCount counts API error events, not render health/,
+	);
+	assert.equal(
+		diagnoseTrace(trace, { pipeline: { readyNoteCount: 1 } }).status,
+		"ok",
+	);
+	assert.equal(
+		diagnoseTrace(trace, { visibleCaptionCharacters: 0 }).status,
+		"ok",
+	);
+
+	now = 10_001;
+	trace.addOutcomes({ rendered: 1 });
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	now = 20_001;
+	assert.deepEqual(trace.getSummary().recentHealth, {
+		discardedFallbacksAtLeast: 0,
+		hasSuccessfulRender: false,
+		windowMs: 10_000,
+	});
+	assert.equal(diagnoseTrace(trace).status, "ok");
+});
+
+test("recent caption health expires without new outcomes or playback polling", () => {
+	let now = 500;
+	const trace = YoutubeDiagnostics.createCaptionTraceStore({ now: () => now });
+
+	assert.equal(
+		diagnoseTrace(trace, { playback: { paused: true } }).status,
+		"ok",
+	);
+	trace.addOutcomes({ fallbackDiscarded: 2 });
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	trace.addOutcomes({ fallbackDiscarded: 1 });
+	assert.equal(diagnoseTrace(trace).status, "degraded");
+	now = 10_499;
+	assert.equal(diagnoseTrace(trace).status, "degraded");
+	now = 10_500;
+	assert.equal(
+		diagnoseTrace(trace, { playback: { paused: true } }).status,
+		"ok",
+	);
+	assert.equal(trace.getSummary().recentHealth.discardedFallbacksAtLeast, 0);
+});
+
+test("recent health excludes timed-only cache drops and normal cue transitions", () => {
+	let now = 0;
+	const trace = YoutubeDiagnostics.createCaptionTraceStore({ now: () => now });
+
+	trace.addMutation({ cachePath: "visible-fallback", kind: "source" });
+	trace.addOutcomes({ cached: 100, superseded: 10, fallbackDiscarded: 0 });
+	assert.equal(trace.getSummary().recentHealth.discardedFallbacksAtLeast, 0);
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	for (now = 1000; now < 5000; now += 1000) {
+		trace.addOutcomes({ rendered: 1, fallbackDiscarded: 1 });
+		assert.equal(diagnoseTrace(trace).status, "ok");
+	}
+	// Lifetime totals alone cannot diagnose current render health.
+	assert.equal(
+		YoutubeDiagnostics.diagnoseYoutubePipeline({
+			captionTrace: {
+				renderedResults: 0,
+				supersededResults: 100,
+				visibleFallbacks: 100,
+			},
+			pipeline: { readyNoteCount: 0 },
+			visibleCaptionCharacters: 77,
+		}).status,
+		"ok",
+	);
+});
+
+test("recent health is bounded and resets without changing lifetime totals", () => {
+	const trace = YoutubeDiagnostics.createCaptionTraceStore({ now: () => 0 });
+
+	trace.addOutcomes({ rendered: 1 });
+	for (let index = 0; index < 1000; index += 1) {
+		trace.addOutcomes({ fallbackDiscarded: 100, superseded: 100 });
+	}
+	assert.deepEqual(trace.getSummary().recentHealth, {
+		discardedFallbacksAtLeast: 3,
+		hasSuccessfulRender: true,
+		windowMs: 10_000,
+	});
+	assert.equal(trace.getSummary().supersededResults, 100_000);
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	trace.resetRecentHealth();
+	assert.equal(trace.getSummary().renderedResults, 1);
+	assert.equal(trace.getSummary().supersededResults, 100_000);
+	assert.equal(diagnoseTrace(trace).status, "ok");
+	assert.equal(trace.getSummary().recentHealth.discardedFallbacksAtLeast, 0);
+	trace.addOutcomes({ superseded: 3 });
+	assert.equal(diagnoseTrace(trace).status, "degraded");
+	trace.clear();
+	assert.equal(trace.getSummary().supersededResults, 0);
+	assert.equal(diagnoseTrace(trace).status, "ok");
+});
+
+test("YouTube diagnostics retain prefetch attempt summaries after activity rolls", () => {
+	const store = YoutubeDiagnostics.createDiagnosticStore();
+	store.add(
+		"prefetch-attempts",
+		"native-request=http-error; advertised=empty-body",
+	);
+	for (let index = 0; index < 35; index += 1) store.add("render", "outcome");
+	assert.equal(store.getEvents().length, 30);
+	assert.equal(store.getNotableEvents()[0].stage, "prefetch-attempts");
 });
 
 test("YouTube caption traces keep bounded timing metadata without text or secrets", async () => {
@@ -295,6 +439,11 @@ test("YouTube caption traces keep bounded timing metadata without text or secret
 		progressiveSourceMutations: 1,
 		provisionalResults: 1,
 		renderedResults: 1,
+		recentHealth: {
+			discardedFallbacksAtLeast: 3,
+			hasSuccessfulRender: true,
+			windowMs: 10_000,
+		},
 		sampleCount: 3,
 		supersededResults: 3,
 		timedPrefixHits: 0,

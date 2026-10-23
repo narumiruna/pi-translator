@@ -642,6 +642,53 @@ test("superseded progressive fallbacks can render provisionally", () => {
 	);
 });
 
+test("progressive fallback uses the live unique caption when extraction lags behind mutations", () => {
+	const translation = {
+		id: "ot-first",
+		kind: "subtitle",
+		sourceText: "Build",
+		translation: "建立",
+	};
+	const retry = { id: "ot-pending", text: "Build reliable" };
+	const source = {
+		text: "Build reliable tools while captions keep growing",
+		getAttribute: (name) => (name === "data-ot-source-id" ? "ot-live" : null),
+	};
+	const resolve = (sources, pending = retry) =>
+		resolveProgressiveSubtitleRefresh(
+			youtubeProfile,
+			sources,
+			translation,
+			pending,
+			(candidate) => candidate.text,
+			"data-ot-source-id",
+		);
+
+	assert.deepEqual(resolve([source]), {
+		source,
+		translation: { ...translation, id: "ot-live", provisional: true },
+	});
+	// A replacement can arrive before extraction assigns an identity.
+	const unclaimed = { ...source, getAttribute: () => null };
+	assert.deepEqual(resolve([unclaimed]), {
+		source: unclaimed,
+		translation: { ...translation, id: retry.id, provisional: true },
+	});
+	assert.equal(resolve([source, { ...source }]), null);
+	const unrelatedOwner = {
+		text: "Unrelated next cue",
+		getAttribute: (name) => (name === "data-ot-source-id" ? retry.id : null),
+	};
+	assert.equal(resolve([unclaimed, unrelatedOwner]), null);
+	assert.equal(resolve([unrelatedOwner, unclaimed]), null);
+	assert.equal(resolve([{ ...source, text: "Unrelated next cue" }]), null);
+	assert.equal(
+		resolve([{ ...source, text: "Builder is a different word" }]),
+		null,
+	);
+	assert.equal(resolve([source], null), null);
+});
+
 test("prefetched results adopt a matching visible fallback identity", () => {
 	const source = {
 		getAttribute(name) {

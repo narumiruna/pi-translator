@@ -837,6 +837,26 @@ export function createBackgroundController(options = {}) {
 			queued: 0,
 			sessionStatus: "active",
 		};
+		const prefetchAttempts = [];
+		let pendingAttemptSource;
+		const finishPrefetch = (prefetch) => {
+			const attempts = prefetchAttempts.map((attempt) => ({ ...attempt }));
+			const firstFailure = attempts.find(
+				(attempt) => attempt.reason !== "ready",
+			);
+			sendYoutubeDiagnosticEvent?.(
+				tabId,
+				0,
+				"prefetch-attempts",
+				`${attempts.map(({ attemptSource, reason, httpStatus }) => `attempt=${attemptSource}; reason=${reason}${httpStatus === undefined ? "" : `; status=${httpStatus}`}`).join(" | ")}; available=${prefetch.available}`,
+				translation.sessionId,
+			)?.catch?.(() => {});
+			return {
+				...prefetch,
+				attempts,
+				...(firstFailure ? { firstFailure } : {}),
+			};
+		};
 		let videoKey = payload.videoKey;
 		const validate = async () => {
 			signal.throwIfAborted();
@@ -892,8 +912,10 @@ export function createBackgroundController(options = {}) {
 					})
 				: "";
 			signal.throwIfAborted();
-			const initializePrefetch = (baseUrl) =>
-				youtubeCaptionPrefetch.initialize({
+			const initializePrefetch = async (baseUrl, attemptSource) => {
+				pendingAttemptSource = attemptSource;
+				const result = await youtubeCaptionPrefetch.initialize({
+					attemptSource,
 					baseUrl,
 					currentTimeMs: captions.currentTimeMs,
 					frameId: 0,
@@ -903,14 +925,29 @@ export function createBackgroundController(options = {}) {
 					sessionId: translation.sessionId,
 					tabId,
 				});
+				signal.throwIfAborted();
+				pendingAttemptSource = undefined;
+				prefetchAttempts.push({
+					attemptSource,
+					reason: result.available ? "ready" : result.reason,
+					...(result.httpStatus === undefined
+						? {}
+						: { httpStatus: result.httpStatus }),
+				});
+				return result;
+			};
 			let prefetch = nativeTrackUrl
-				? await initializePrefetch(nativeTrackUrl)
+				? await initializePrefetch(nativeTrackUrl, "native-request")
 				: unavailable;
 			signal.throwIfAborted();
 			if (prefetch.available) captions.trackSource = "native-request";
-			else if (advertisedTrackUrl && nativeTrackUrl !== advertisedTrackUrl)
-				prefetch = await initializePrefetch(advertisedTrackUrl);
+			else if (
+				!nativeTrackUrl ||
+				(advertisedTrackUrl && nativeTrackUrl !== advertisedTrackUrl)
+			)
+				prefetch = await initializePrefetch(advertisedTrackUrl, "advertised");
 			await validate();
+			prefetch = finishPrefetch(prefetch);
 			const { trackBaseUrl: _trackBaseUrl, ...captionStatus } = captions;
 			return {
 				ok: true,
@@ -937,12 +974,17 @@ export function createBackgroundController(options = {}) {
 						translation.sessionId,
 					),
 				).catch(() => {});
+				if (pendingAttemptSource)
+					prefetchAttempts.push({
+						attemptSource: pendingAttemptSource,
+						reason: "request-timeout",
+					});
 				const { trackBaseUrl: _trackBaseUrl, ...captionStatus } = captions;
 				return {
 					ok: true,
 					sessionId: translation.sessionId,
 					captions: captionStatus,
-					prefetch: unavailable,
+					prefetch: finishPrefetch(unavailable),
 				};
 			}
 			if (

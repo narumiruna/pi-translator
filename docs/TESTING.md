@@ -213,12 +213,59 @@ Recovery and subtitle batch deadlines are internal constants. The background att
 - CI runs the complete packaged fixture suite with `--fixture-only` and explicitly logs that the public-page smoke was not run. GitHub-hosted runners displayed YouTube's “Sign in to confirm you're not a bot” page; native controls were unavailable. The default command still requires the real-page smoke, which passed locally.
 - CI uploads fixture screenshots in the `pi-translator-chrome` artifact under `e2e-artifacts/`, including `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. The local real-page capture is `youtube-live-player.png`. Screenshots are not committed.
 
+### Caption rendering and diagnosis (2026-10-23)
+
+The reported incident showed successful API responses, unavailable timed prefetch, and intermittent gaps with no ready note.
+The original YouTube response failure is not confirmed by the old generic fallback message.
+Synthetic regressions identified two avoidable gaps: a live caption can advance beyond its last extracted snapshot, and translation-only mode can hide a stale native source from refresh extraction.
+
+1. Force timed-caption acquisition to return an empty HTTP 200 response while native captions remain available.
+   - Confirm `prefetch-fallback` identifies `attempt`, `reason=empty-body`, and numeric HTTP status.
+   - Confirm the retained `prefetch-attempts` event contains both native and advertised outcomes after the rolling event log changes.
+   - Confirm reports contain no signed URLs, response bodies, credentials, or caption text.
+2. Delay mock translations by 800 ms while extending captions every 40 ms and replacing their nodes every second mutation.
+   - Require three distinct translated snapshots for the growing primary caption before mutations stop, in both subtitle display modes.
+   - Include one-to-two-to-one segment transitions, coalesced pending snapshots, and no duplicate note identities.
+   - Confirm a visible translated note permits refresh extraction of its hidden, stale native segment in translation-only mode.
+   - Reject ambiguous continuation matches and identities still owned by a different live segment.
+3. Seek while fallback translation is pending.
+   - Clear pending observer records, retire old fallback identities, remove old presentation state, and schedule the current cue with a fresh identity.
+   - Confirm detached pre-seek notes and late results cannot hide a post-seek native cue.
+   - Confirm callbacks from an old video cannot clear the new video's caption state.
+4. After earlier successful renders, discard three current fallback results within a 10-second monotonic window without a successful render in that window.
+   - With visible native captions and no ready note, confirm `caption-churn-starvation` is reported.
+   - Confirm recovery or window expiry removes the warning, even without new playback events.
+   - Exclude timed-only cache drops and seek-invalidated results from current fallback health.
+   - Keep lifetime counters for context; `failureCount` counts `api-error` events in the rolling log, not rendering health.
+
+Verification passed locally: Biome format/lint, `npm run check` (58 files and 629 unit tests), module syntax, production build, and artifact verification.
+Packaged YouTube fixtures passed with three distinct primary translations during 73 ongoing mutations in each display mode, with no duplicate notes and one-to-two-to-one segment transitions.
+The existing four actual worker restarts, 31-second pause/resume, stalled SSE, recovery exhaustion, and seek cases also passed.
+Mock page/selection/iframe/reinjection, desktop/mobile layout and fixed-height placement, page lifecycle, source revisions, options, GitHub comments, and PDF regressions passed.
+Build output still reports the existing two Extension.js asset-budget warnings and PDF `tabs` compatibility warning.
+No permissions, dependencies, settings, or branding were changed.
+Independent diff review covered correctness, privacy, seek/session lifecycle, compatibility, regression risk, and scope.
+Local evidence uses the production bundle and mock API only; no package, version tag, or release was published.
+Diagnostic reports are saved as `e2e-artifacts/youtube-rendering-{translation-only,bilingual}-{before,after}.txt`.
+Screenshots are saved as `e2e-artifacts/youtube-rendering-{translation-only,bilingual}.png`.
+These files are not committed; the CI artifact upload includes them under `pi-translator-chrome`.
+[CI run 39922127808](https://github.com/narumiruna/pi-translator/actions/runs/39922127808) passed all checks on the pull request merge result.
+Its [artifact](https://github.com/narumiruna/pi-translator/actions/runs/39922127808/artifacts/12487798283) contains both screenshots and all four diagnostic reports.
+The before reports show startup and an earlier successful render; they are not captures of the affected user's installed extension.
+The after reports and timeline assertions show safe translations during continued mutations, not only after the final stable caption.
+
 ### Remaining live checks
 
 These checks are separate from automated-plan completion:
 
 - **Hosted-runner live smoke — CI maintainer:** Use a runner with legitimate access to a playable public YouTube page, then run the default `npm run e2e:youtube` command without `--fixture-only`. Expected result: real player controls, content injection, and startup pass with the mock provider. The public-page smoke is blocked by YouTube's bot check on the current GitHub-hosted runner. Do not claim real-page CI validation until it passes on an accessible runner. Do not bypass the bot check or use credentials in test artifacts.
-- **Incident diagnosis — affected user:** With the failing video and installed extension, copy diagnostics when translation stops. Record playback time, any pause or ad transition, and whether native captions still update. Expected result: identify the failure stage without sharing credentials. The cause of the original incident is still unconfirmed; synthetic recovery tests alone do not establish that it is resolved.
+- **Incident verification — affected user or authorized tester:** With the candidate extension, legitimate access to `https://www.youtube.com/watch?v=5x9dkYIRb58`, and approval for translation API use, replay approximately 36:30–38:00 in both subtitle display modes.
+  Capture sanitized diagnostics during a gap and after recovery, including the prefetch reason and recent-health state.
+  Record playback time, pauses or ad transitions, and whether native captions update.
+  Expected result: safe progressive translations render while captions continue changing, or the report identifies the remaining failure category while native captions remain readable.
+  Actual YouTube request behavior and provider latency remain unverified.
+  Do not claim this specific incident is resolved from synthetic tests alone.
+  Inspect the installed browser only through the user-selected Chrome DevTools connection; do not bypass sign-in or bot checks.
 - **Live-provider soak — account owner or authorized tester:** With a configured provider and approval for API usage, play a captioned video for at least 20 real-time minutes. Include pause/resume and an ad transition when available. Capture sanitized diagnostics. Expected result: continued translation or a bounded, actionable error. Live provider delays, account limits, and YouTube runtime changes remain unverified until this check is recorded. Do not claim live-provider long-playback validation before then.
 
 ## Selection translation

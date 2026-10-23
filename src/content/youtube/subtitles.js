@@ -281,28 +281,45 @@ function resolveProgressiveSubtitleRefresh(
 	}
 
 	const retryText = normalizeSubtitleSourceText(retryItem.text);
+	const translatedText = normalizeSubtitleSourceText(translation.sourceText);
+	if (
+		retryText !== translatedText &&
+		!isProgressiveSubtitleChange(translatedText, retryText)
+	) {
+		return null;
+	}
+	// Extraction is debounced, but YouTube can replace the node or extend its
+	// text again before the active response arrives. Match the live, unique
+	// continuation rather than requiring the last extracted identity/snapshot.
 	const matches = (sources || []).filter((source) => {
 		const currentSourceText = normalizeSubtitleSourceText(
 			getSourceText?.(source),
 		);
 
 		return (
-			source?.getAttribute?.(sourceAttribute) === retryItem.id &&
-			currentSourceText === retryText &&
-			isProgressiveSubtitleChange(translation.sourceText, currentSourceText)
+			(currentSourceText === retryText ||
+				isProgressiveSubtitleChange(retryText, currentSourceText)) &&
+			isProgressiveSubtitleChange(translatedText, currentSourceText)
 		);
 	});
 
-	return matches.length === 1
-		? {
-				source: matches[0],
-				translation: {
-					...translation,
-					id: retryItem.id,
-					provisional: true,
-				},
-			}
-		: null;
+	if (matches.length !== 1) return null;
+	const source = matches[0];
+	const id = source.getAttribute?.(sourceAttribute) || retryItem.id;
+	// Slot indices can shift while a request is pending. Never give an
+	// unclaimed replacement an identity still owned by another live segment.
+	if (
+		(sources || []).some(
+			(candidate) =>
+				candidate !== source &&
+				candidate?.getAttribute?.(sourceAttribute) === id,
+		)
+	)
+		return null;
+	return {
+		source,
+		translation: { ...translation, id, provisional: true },
+	};
 }
 
 function aliasClaimedSubtitleTranslation(
@@ -351,9 +368,7 @@ function isProgressiveSubtitleChange(previousText, currentText) {
 	const previous = normalizeSubtitleSourceText(previousText);
 	const current = normalizeSubtitleSourceText(currentText);
 
-	return Boolean(
-		previous && current !== previous && current.startsWith(previous),
-	);
+	return Boolean(previous && isProgressiveCaptionPrefix(current, previous));
 }
 
 function markProgressiveSubtitleSource(element, options = {}) {

@@ -42,12 +42,7 @@ function createFixture() {
 		},
 		async fetch(url, init) {
 			fetches.push({ init, url });
-			return {
-				ok: true,
-				async json() {
-					return payload;
-				},
-			};
+			return new Response(JSON.stringify(payload));
 		},
 		onDiagnostic(stage, detail) {
 			diagnostics.push({ stage, detail });
@@ -68,7 +63,14 @@ test("initialization fetches JSON3 and queues the current 60-second window", asy
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: true, cueCount: 8, queued: 3, sessionStatus: "active" },
+		{
+			attemptSource: "advertised",
+			httpStatus: 200,
+			available: true,
+			cueCount: 8,
+			queued: 3,
+			sessionStatus: "active",
+		},
 	);
 	assert.equal(new URL(fetches[0].url).searchParams.get("fmt"), "json3");
 	assert.deepEqual(fetches[0].init, { credentials: "include" });
@@ -155,25 +157,22 @@ test("prefetch queues every overlapping active cue for exact DOM matching", asyn
 			return { queued: context.items.length };
 		},
 		async fetch() {
-			return {
-				ok: true,
-				async json() {
-					return {
-						events: [
-							{
-								tStartMs: 1000,
-								dDurationMs: 5000,
-								segs: [{ utf8: "First active line" }],
-							},
-							{
-								tStartMs: 3000,
-								dDurationMs: 4000,
-								segs: [{ utf8: "Second active line" }],
-							},
-						],
-					};
-				},
-			};
+			return new Response(
+				JSON.stringify({
+					events: [
+						{
+							tStartMs: 1000,
+							dDurationMs: 5000,
+							segs: [{ utf8: "First active line" }],
+						},
+						{
+							tStartMs: 3000,
+							dDurationMs: 4000,
+							segs: [{ utf8: "Second active line" }],
+						},
+					],
+				}),
+			);
 		},
 	});
 
@@ -184,7 +183,14 @@ test("prefetch queues every overlapping active cue for exact DOM matching", asyn
 			sessionId: "session-overlap",
 			tabId: 9,
 		}),
-		{ available: true, cueCount: 2, queued: 2, sessionStatus: "active" },
+		{
+			attemptSource: "advertised",
+			httpStatus: 200,
+			available: true,
+			cueCount: 2,
+			queued: 2,
+			sessionStatus: "active",
+		},
 	);
 	assert.deepEqual(
 		enqueued[0].items.map((item) => item.text),
@@ -219,20 +225,13 @@ test("a later refill can offer failed timed cues again", async () => {
 			return { queued: context.items.length };
 		},
 		async fetch() {
-			return {
-				ok: true,
-				async json() {
-					return {
-						events: [
-							{
-								tStartMs: 1000,
-								dDurationMs: 1000,
-								segs: [{ utf8: "Retry me" }],
-							},
-						],
-					};
-				},
-			};
+			return new Response(
+				JSON.stringify({
+					events: [
+						{ tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: "Retry me" }] },
+					],
+				}),
+			);
 		},
 	});
 
@@ -273,7 +272,14 @@ test("unavailable or malformed timed captions preserve fallback behavior", async
 			sessionId: "session-1",
 			tabId: 7,
 		}),
-		{ available: false, cueCount: 0, queued: 0, sessionStatus: "active" },
+		{
+			attemptSource: "advertised",
+			reason: "network-error",
+			available: false,
+			cueCount: 0,
+			queued: 0,
+			sessionStatus: "active",
+		},
 	);
 	assert.equal(diagnostics.at(-1).stage, "prefetch-fallback");
 	assert.deepEqual(
@@ -283,13 +289,214 @@ test("unavailable or malformed timed captions preserve fallback behavior", async
 			sessionId: "session-2",
 			tabId: 7,
 		}),
-		{ available: false, cueCount: 0, queued: 0, sessionStatus: "active" },
+		{
+			attemptSource: "advertised",
+			reason: "untrusted-url",
+			available: false,
+			cueCount: 0,
+			queued: 0,
+			sessionStatus: "active",
+		},
 	);
 	assert.equal(diagnostics.length, 2);
 	assert.deepEqual(diagnostics.at(-1), {
-		detail:
-			"Timed caption URL was missing or untrusted; using visible captions",
+		detail: "attempt=advertised; reason=untrusted-url; using visible captions",
 		stage: "prefetch-fallback",
 	});
 	assert.doesNotMatch(JSON.stringify(diagnostics), /attacker\.example/u);
 });
+
+const privateUrl =
+	"https://www.youtube.com/api/timedtext?v=private-video&pot=secret-proof&signature=secret-signature";
+const privateError = new Error(`secret-exception ${privateUrl} secret-caption`);
+const usableBody = JSON.stringify({
+	events: [
+		{ tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "secret-caption" }] },
+	],
+});
+
+test.each([
+	{ reason: "missing-url", baseUrl: "" },
+	{ reason: "untrusted-url", baseUrl: "https://attacker.example/secret" },
+	{
+		reason: "network-error",
+		fetch: async () => {
+			throw privateError;
+		},
+	},
+	{
+		reason: "http-error",
+		fetch: async () => new Response("secret-body", { status: 403 }),
+		httpStatus: 403,
+	},
+	{
+		reason: "empty-body",
+		fetch: async () => new Response(""),
+		httpStatus: 200,
+	},
+	{
+		reason: "empty-body",
+		fetch: async () => new Response(" \n\t"),
+		httpStatus: 200,
+	},
+	{
+		reason: "invalid-json",
+		fetch: async () => new Response("secret-body invalid json"),
+		httpStatus: 200,
+	},
+	{
+		reason: "no-cues",
+		fetch: async () => new Response('{"events":[]}'),
+		httpStatus: 200,
+	},
+	{
+		reason: "no-cues",
+		fetch: async () =>
+			new Response('{"events":[{"segs":[{"utf8":"secret-caption"}]}]}'),
+		httpStatus: 200,
+	},
+	{
+		reason: "no-cues",
+		fetch: async () => new Response('{"events":{"secret-body":true}}'),
+		httpStatus: 200,
+	},
+	{
+		reason: "network-error",
+		fetch: async () => ({
+			ok: true,
+			status: 200,
+			text: async () => {
+				throw privateError;
+			},
+		}),
+		httpStatus: 200,
+	},
+	{
+		reason: "enqueue-error",
+		enqueue: async () => {
+			throw privateError;
+		},
+		httpStatus: 200,
+	},
+])("prefetch reports a safe $reason reason", async (options) => {
+	const diagnostics = [];
+	let fetchCount = 0;
+	const prefetch = createYoutubeCaptionPrefetch({
+		fetch: async (...args) => {
+			fetchCount += 1;
+			return options.fetch ? options.fetch(...args) : new Response(usableBody);
+		},
+		enqueue: options.enqueue,
+		onDiagnostic: (stage, detail) => diagnostics.push({ stage, detail }),
+	});
+	const result = await prefetch.initialize({
+		attemptSource: "native-request",
+		baseUrl: options.baseUrl ?? privateUrl,
+		sessionId: "session-private",
+		tabId: 1,
+	});
+	assert.deepEqual(result, {
+		attemptSource: "native-request",
+		available: false,
+		cueCount: 0,
+		queued: 0,
+		sessionStatus: "active",
+		reason: options.reason,
+		...(options.httpStatus === undefined
+			? {}
+			: { httpStatus: options.httpStatus }),
+	});
+	assert.equal(fetchCount, options.baseUrl === undefined ? 1 : 0);
+	assert.deepEqual(diagnostics, [
+		{
+			stage: "prefetch-fallback",
+			detail: `attempt=native-request; reason=${options.reason}${options.httpStatus === undefined ? "" : `; status=${options.httpStatus}`}; using visible captions`,
+		},
+	]);
+	assert.doesNotMatch(
+		JSON.stringify({ result, diagnostics }),
+		/secret|https:|attacker|private-video|session-private/u,
+	);
+	assert.equal(
+		(await prefetch.update({ tabId: 1, sessionId: "session-private" }))
+			.available,
+		false,
+	);
+});
+
+test("untrusted attempt labels and nonnumeric status cannot enter diagnostics", async () => {
+	const diagnostics = [];
+	const prefetch = createYoutubeCaptionPrefetch({
+		fetch: async () => ({ ok: false, status: privateUrl }),
+		onDiagnostic: (stage, detail) => diagnostics.push({ stage, detail }),
+	});
+	const result = await prefetch.initialize({
+		tabId: 1,
+		sessionId: "s",
+		baseUrl: privateUrl,
+		attemptSource: privateUrl,
+	});
+	assert.equal(result.attemptSource, "advertised");
+	assert.equal(result.reason, "http-error");
+	assert.equal(Object.hasOwn(result, "httpStatus"), false);
+	assert.doesNotMatch(
+		JSON.stringify({ result, diagnostics }),
+		/secret|https:/u,
+	);
+});
+
+test.each(["fetch", "body", "enqueue"])(
+	"cancellation during %s emits no failure or late ready event",
+	async (stage) => {
+		const diagnostics = [];
+		const controller = new AbortController();
+		let release;
+		let entered;
+		const started = new Promise((resolve) => {
+			entered = resolve;
+		});
+		const pending = () => {
+			entered();
+			return new Promise((resolve) => {
+				release = resolve;
+			});
+		};
+		const prefetch = createYoutubeCaptionPrefetch({
+			fetch: async () =>
+				stage === "fetch"
+					? pending()
+					: {
+							ok: true,
+							status: 200,
+							text: stage === "body" ? pending : async () => usableBody,
+						},
+			enqueue: stage === "enqueue" ? pending : async () => ({ queued: 1 }),
+			onDiagnostic: (name, detail) => diagnostics.push({ name, detail }),
+		});
+		const initialization = prefetch.initialize({
+			tabId: 1,
+			sessionId: "s",
+			baseUrl: privateUrl,
+			signal: controller.signal,
+		});
+		await started;
+		controller.abort(privateError);
+		prefetch.remove(1);
+		const result = await initialization;
+		assert.equal(result.available, false);
+		assert.equal(result.sessionStatus, "stale");
+		release(
+			stage === "fetch"
+				? new Response(usableBody)
+				: stage === "body"
+					? usableBody
+					: { queued: 1 },
+		);
+		await Promise.resolve();
+		assert.deepEqual(diagnostics, []);
+		assert.equal(
+			(await prefetch.update({ tabId: 1, sessionId: "s" })).sessionStatus,
+			"missing",
+		);
+	},
+);

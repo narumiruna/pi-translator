@@ -106,6 +106,7 @@ test("YouTube runtime coalesces progressive fallbacks and recovers caption timeo
 		supersededItems: new Map([
 			["ot-a", { id: "ot-b", text: "Build reliable" }],
 		]),
+		invalidatedIds: new Set(),
 	});
 	assert.equal(scheduled, 1);
 	assert.deepEqual(
@@ -291,8 +292,13 @@ function recoveryFixture(
 		youtubeSubtitleTranslations: new Map(),
 	};
 	let scheduled = 0;
+	let observerResets = 0;
 	const runtime = createYoutubeRuntime({
+		resetSubtitleObserver() {
+			observerResets++;
+		},
 		document: {
+			getElementById: () => null,
 			querySelector: (selector) => (selector.includes("video") ? video : null),
 			querySelectorAll: (selector) =>
 				selector.includes(".ytp-caption-segment") ? [source] : [],
@@ -331,6 +337,7 @@ function recoveryFixture(
 		events,
 		location,
 		getScheduled: () => scheduled,
+		getObserverResets: () => observerResets,
 		getVideo: () => video,
 		replaceVideo: () => {
 			video = makeVideo();
@@ -338,6 +345,179 @@ function recoveryFixture(
 		},
 	};
 }
+
+test("seeking retires old fallback identities and clears presentation before rescheduling", () => {
+	const f = recoveryFixture();
+	f.runtime.bindYoutubePrefetchTracking();
+	const old = { id: "source-1", kind: "subtitle", text: "Current caption" };
+	assert.deepEqual(f.runtime.matchYoutubeCaptionItems([old]).missing, [old]);
+	f.attributes.set("data-ot-subtitle-replaced", "true");
+	f.attributes.set("data-ot-translated", "true");
+	f.getVideo().listeners.get("seeking")();
+	assert.equal(f.attributes.has("data-ot-source-id"), false);
+	assert.equal(f.attributes.has("data-ot-subtitle-replaced"), false);
+	assert.equal(f.getScheduled(), 1);
+	assert.equal(f.getObserverResets(), 1);
+	const settled = f.runtime.settleYoutubeCaptionFallbacks([old]);
+	assert.deepEqual(settled.supersededIds, new Set([old.id]));
+	assert.deepEqual(settled.invalidatedIds, new Set([old.id]));
+	assert.equal(settled.supersededItems.size, 0);
+	assert.equal(f.getScheduled(), 1);
+	f.attributes.set("data-ot-source-id", "source-2");
+	const current = { ...old, id: "source-2" };
+	assert.deepEqual(f.runtime.matchYoutubeCaptionItems([current]).missing, [
+		current,
+	]);
+	f.runtime.cleanupYoutubeRuntime();
+});
+
+test("a seek callback from an old video cannot clear the new video's presentation", () => {
+	const f = recoveryFixture();
+	f.runtime.bindYoutubePrefetchTracking();
+	const seek = f.getVideo().listeners.get("seeking");
+	f.location.search = "?v=video-b";
+	seek();
+	assert.equal(f.getScheduled(), 0);
+	assert.equal(f.getObserverResets(), 0);
+	assert.equal(f.attributes.get("data-ot-source-id"), "source-1");
+	f.runtime.cleanupYoutubeRuntime();
+});
+
+test("render health excludes pre-seek results and timed-only cache misses", () => {
+	let outcomes;
+	const renderer = createContentRenderer({
+		document: { querySelector: () => null, querySelectorAll: () => [] },
+		window: {},
+		pageState: { pageTranslation: {}, youtubeSubtitleTranslations: new Map() },
+		activeSiteProfile: { presentation: "subtitle" },
+		SubtitleApi,
+		ensureStyles() {},
+		ensureObserver() {},
+		settleYoutubeCaptionFallbacks: () => ({
+			settledIds: new Set(["retired", "current"]),
+			supersededIds: new Set(["retired", "current"]),
+			supersededItems: new Map(),
+			invalidatedIds: new Set(["retired"]),
+		}),
+		recordYoutubeDiagnostic(_stage, _detail, options) {
+			outcomes = options.outcomes;
+		},
+	});
+	const result = renderer.renderPageTranslationUpdates({
+		translations: ["retired", "current", "timed"].map((id) => ({
+			id,
+			kind: "subtitle",
+			sourceText: "Old caption",
+			translation: "舊字幕",
+			...(id === "timed" ? { cueStartMs: 1000, durationMs: 1000 } : {}),
+		})),
+	});
+	assert.equal(result.rendered, 0);
+	assert.equal(outcomes.superseded, 2);
+	assert.equal(outcomes.cached, 1);
+	assert.equal(outcomes.fallbackDiscarded, 1);
+});
+
+function recentRuntimeHealth(fixture) {
+	return fixture.pageState.youtubeDiagnostics.captionTrace.getSummary()
+		.recentHealth;
+}
+
+test("runtime records recent render health with a monotonic clock and no polling timer", async () => {
+	vi.useFakeTimers();
+	const f = recoveryFixture();
+	f.runtime.bindYoutubePrefetchTracking();
+	f.runtime.recordYoutubeDiagnostic("render", "Earlier success", {
+		outcomes: { rendered: 1 },
+	});
+	// Wall-clock corrections do not expire a monotonic health window.
+	vi.setSystemTime(new Date("2050-01-01T00:00:00Z"));
+	assert.equal(recentRuntimeHealth(f).hasSuccessfulRender, true);
+	await vi.advanceTimersByTimeAsync(10_000);
+	f.runtime.recordYoutubeDiagnostic("render", "Discarded fallback results", {
+		outcomes: { fallbackDiscarded: 3, superseded: 3 },
+	});
+	assert.deepEqual(recentRuntimeHealth(f), {
+		discardedFallbacksAtLeast: 3,
+		hasSuccessfulRender: false,
+		windowMs: 10_000,
+	});
+	assert.equal(
+		f.pageState.youtubeDiagnostics.captionTrace.getSummary().renderedResults,
+		1,
+	);
+	assert.equal(vi.getTimerCount(), 0);
+	f.runtime.recordYoutubeDiagnostic("render", "Recovered", {
+		outcomes: { rendered: 1 },
+	});
+	assert.equal(recentRuntimeHealth(f).hasSuccessfulRender, true);
+	await vi.advanceTimersByTimeAsync(10_000);
+	assert.equal(recentRuntimeHealth(f).hasSuccessfulRender, false);
+	assert.equal(recentRuntimeHealth(f).discardedFallbacksAtLeast, 0);
+	assert.equal(vi.getTimerCount(), 0);
+	f.runtime.cleanupYoutubeRuntime();
+});
+
+test("seek and explicit fallback resets clear only recent render health", () => {
+	const f = recoveryFixture();
+	f.runtime.bindYoutubePrefetchTracking();
+	const trace = f.pageState.youtubeDiagnostics.captionTrace;
+	trace.addOutcomes({ rendered: 1, superseded: 3, fallbackDiscarded: 3 });
+	f.getVideo().listeners.get("seeking")();
+	assert.deepEqual(recentRuntimeHealth(f), {
+		discardedFallbacksAtLeast: 0,
+		hasSuccessfulRender: false,
+		windowMs: 10_000,
+	});
+	assert.equal(trace.getSummary().renderedResults, 1);
+	assert.equal(trace.getSummary().supersededResults, 3);
+	trace.addOutcomes({ fallbackDiscarded: 3 });
+	f.runtime.resetYoutubeCaptionFallbacks();
+	assert.equal(recentRuntimeHealth(f).discardedFallbacksAtLeast, 0);
+	assert.equal(trace.getSummary().renderedResults, 1);
+	f.runtime.cleanupYoutubeRuntime();
+});
+
+test("session loss and the restored session each reset recent render health", async () => {
+	vi.useFakeTimers();
+	let finish;
+	const f = recoveryFixture((message) =>
+		message.type === Messages.MESSAGE_TYPES.START_YOUTUBE_SUBTITLE_TRANSLATION
+			? new Promise((resolve) => {
+					finish = resolve;
+				})
+			: Promise.resolve({ sessionStatus: "active" }),
+	);
+	const trace = f.pageState.youtubeDiagnostics.captionTrace;
+	trace.addOutcomes({ rendered: 1, fallbackDiscarded: 3 });
+	f.runtime.handleYoutubeSessionLoss();
+	assert.equal(recentRuntimeHealth(f).discardedFallbacksAtLeast, 0);
+	assert.equal(recentRuntimeHealth(f).hasSuccessfulRender, false);
+	await vi.advanceTimersByTimeAsync(0);
+	trace.addOutcomes({ fallbackDiscarded: 3 });
+	finish({ ok: true, sessionId: "new-session" });
+	await vi.advanceTimersByTimeAsync(0);
+	assert.equal(f.pageState.pageTranslation.sessionId, "new-session");
+	assert.equal(recentRuntimeHealth(f).discardedFallbacksAtLeast, 0);
+	assert.equal(trace.getSummary().renderedResults, 1);
+	f.runtime.cleanupYoutubeRuntime();
+});
+
+test("a video change clears recent health with the previous video trace", async () => {
+	vi.useFakeTimers();
+	const f = recoveryFixture();
+	const trace = f.pageState.youtubeDiagnostics.captionTrace;
+	trace.addOutcomes({ rendered: 1, fallbackDiscarded: 3 });
+	f.location.search = "?v=video-b";
+	f.runtime.scheduleYoutubeControlMount();
+	await vi.advanceTimersByTimeAsync(0);
+	assert.equal(f.pageState.youtubeControl.videoKey, "video-b");
+	assert.equal(recentRuntimeHealth(f).discardedFallbacksAtLeast, 0);
+	assert.equal(recentRuntimeHealth(f).hasSuccessfulRender, false);
+	assert.equal(trace.getSummary().renderedResults, 0);
+	assert.equal(vi.getTimerCount(), 0);
+	f.runtime.cleanupYoutubeRuntime();
+});
 
 test("queue session loss and progress loss share one recovery and restore visible-only tracking", async () => {
 	let finish;

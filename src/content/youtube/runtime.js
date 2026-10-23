@@ -362,6 +362,7 @@ export function createYoutubeRuntime(options = {}) {
 		const settledIds = new Set();
 		const supersededIds = new Set();
 		const supersededItems = new Map();
+		const invalidatedIds = new Set();
 		let shouldRetry = false;
 
 		for (const item of items || []) {
@@ -373,6 +374,7 @@ export function createYoutubeRuntime(options = {}) {
 				continue;
 			}
 			settledIds.add(id);
+			if (result.invalidated) invalidatedIds.add(id);
 			if (result.superseded) {
 				supersededIds.add(id);
 				if (retryItem) {
@@ -385,10 +387,11 @@ export function createYoutubeRuntime(options = {}) {
 		if (shouldRetry) {
 			scheduleVisibleTranslation?.();
 		}
-		return { settledIds, supersededIds, supersededItems };
+		return { settledIds, supersededIds, supersededItems, invalidatedIds };
 	}
 
 	function resetYoutubeCaptionFallbacks() {
+		pageState.youtubeDiagnostics.captionTrace?.resetRecentHealth?.();
 		captionFallbackStore.clear();
 		if (fallbackRetryTimer !== null) window.clearTimeout(fallbackRetryTimer);
 		fallbackRetryTimer = null;
@@ -513,6 +516,7 @@ export function createYoutubeRuntime(options = {}) {
 	}
 
 	function applyStartedSession(response) {
+		pageState.youtubeDiagnostics.captionTrace?.resetRecentHealth?.();
 		if (response.sessionId)
 			pageState.pageTranslation.sessionId = response.sessionId;
 		setYoutubeCaptionStatus(response.captions, response.prefetch);
@@ -662,6 +666,24 @@ export function createYoutubeRuntime(options = {}) {
 	}
 
 	function handleYoutubePlaybackSeek() {
+		if (
+			disposed ||
+			!pageState.pageTranslation.sessionId ||
+			!isCurrentYoutubeVideo()
+		)
+			return;
+		pageState.youtubeDiagnostics.captionTrace?.resetRecentHealth?.();
+		options.resetSubtitleObserver?.();
+		// Retire in-flight fallback identities, but retain their tombstones so a
+		// late pre-seek result cannot bind to a similar caption at the new time.
+		captionFallbackStore.invalidate();
+		resetCaptionPresentation();
+		for (const source of document.querySelectorAll?.(
+			".ytp-caption-segment[data-ot-source-id]",
+		) || []) {
+			source.removeAttribute?.("data-ot-source-id");
+		}
+		scheduleVisibleTranslation?.();
 		reportYoutubePrefetchProgress("seek", true);
 	}
 

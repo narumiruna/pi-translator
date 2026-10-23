@@ -139,6 +139,44 @@ test("failed fallback retries only once and a changed latest snapshot remains el
 	assert.equal(store.getSummary().activeSlotCount, 0);
 });
 
+test("seek invalidation keeps bounded tombstones without blocking fresh identities", () => {
+	const store = createCaptionFallbackStore({ supersededLimit: 2 });
+	for (let index = 0; index < 3; index += 1) {
+		store.offer("slot", { id: `old-${index}`, text: "Caption" });
+		store.invalidate();
+	}
+	assert.equal(store.settle("old-0").tracked, false);
+	assert.deepEqual(store.settle("old-1"), {
+		shouldRetry: false,
+		superseded: true,
+		tracked: true,
+		invalidated: true,
+	});
+	assert.equal(
+		store.offer("slot", { id: "new", text: "Caption" }).accepted,
+		true,
+	);
+	assert.equal(store.settle("old-2").invalidated, true);
+	assert.equal(store.getSummary().activeSlotCount, 1);
+	assert.equal(store.settle("new").superseded, false);
+});
+
+test("seek invalidation also retires results whose caption slots already disappeared", () => {
+	const store = createCaptionFallbackStore();
+	for (let index = 0; index < 3; index++) {
+		store.offer(`slot-${index}`, {
+			id: `old-${index}`,
+			text: "Pre-seek caption",
+		});
+	}
+	store.retain(new Set());
+	store.invalidate();
+	for (let index = 0; index < 3; index++) {
+		assert.equal(store.settle(`old-${index}`).invalidated, true);
+	}
+	assert.equal(store.getSummary().activeSlotCount, 0);
+});
+
 test("caption fallback classifies removed slots and clears retained state", () => {
 	const store = createCaptionFallbackStore();
 

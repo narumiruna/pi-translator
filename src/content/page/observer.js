@@ -304,16 +304,21 @@ export function createPageObserver(options = {}) {
 		contentLifecycle.start();
 	}
 
-	function cleanup() {
-		observer?.disconnect();
-		observer = null;
-		contentLifecycle.cleanup();
+	function resetPendingMutations() {
+		observer?.takeRecords?.();
 		if (observerFlushTimer) window.clearTimeout(observerFlushTimer);
 		observerFlushTimer = null;
 		pendingObserverMutations.length = 0;
 	}
 
-	return { cleanup, ensureObserver, withObserverPaused };
+	function cleanup() {
+		resetPendingMutations();
+		observer?.disconnect();
+		observer = null;
+		contentLifecycle.cleanup();
+	}
+
+	return { cleanup, ensureObserver, resetPendingMutations, withObserverPaused };
 }
 
 export { isSubtitleRelatedMutation };

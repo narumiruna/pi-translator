@@ -198,6 +198,91 @@ test("subtitle replacements rebind exact notes before cleanup and scheduling", (
 	assert.equal(timers.length, 0);
 });
 
+test.each([0, 200])(
+	"seek discards detached pre-seek records before observer flush (delay=%s)",
+	(observerDebounceMs) => {
+		let callback;
+		let takeCount = 0;
+		let rebound = 0;
+		let scheduled = 0;
+		const records = [];
+		const timers = new Map();
+		const observer = createPageObserver({
+			// biome-ignore lint/correctness/noComponentHookFactories: DOM constructor fixture.
+			MutationObserver: function MutationObserver(handle) {
+				callback = handle;
+				return {
+					disconnect() {},
+					observe() {},
+					takeRecords() {
+						takeCount++;
+						return records.splice(0);
+					},
+				};
+			},
+			Node,
+			SubtitleApi: {
+				YOUTUBE_CAPTION_SEGMENT_SELECTOR: selector,
+				isSubtitleProfile: () => true,
+				rebindDetachedSubtitleSources() {
+					rebound++;
+				},
+				removeDetachedSubtitleSources() {},
+				reconcileSubtitleNotes() {},
+			},
+			activeSiteProfile: {},
+			contentLifecycle: { start() {}, cleanup() {} },
+			document: { body: {}, querySelectorAll: () => [] },
+			isInsideTranslation: () => false,
+			onScheduleVisibleTranslation() {
+				scheduled++;
+			},
+			rootAttr: "data-ot-role",
+			sourceAttr: "data-ot-source-id",
+			observerDebounceMs,
+			window: {
+				setTimeout(fn) {
+					timers.set(1, fn);
+					return 1;
+				},
+				clearTimeout(id) {
+					timers.delete(id);
+				},
+			},
+		});
+		observer.ensureObserver();
+		records.push({
+			type: "childList",
+			target: createElement(),
+			addedNodes: [],
+			removedNodes: [
+				{ ...createElement({ matches: selector }), querySelectorAll: () => [] },
+			],
+		});
+		if (observerDebounceMs) callback(records.splice(0));
+		observer.resetPendingMutations();
+		assert.equal(takeCount, 1);
+		assert.equal(records.length, 0);
+		assert.equal(timers.size, 0);
+		callback([
+			{
+				type: "childList",
+				target: createElement(),
+				addedNodes: [createElement({ matches: selector })],
+				removedNodes: [],
+			},
+		]);
+		for (const flush of [...timers.values()]) flush();
+		assert.equal(
+			rebound,
+			0,
+			"Pre-seek notes must not bind to a post-seek replacement.",
+		);
+		assert.equal(scheduled, 1);
+		observer.cleanup();
+	},
+);
+
 test.each([true, false])(
 	"text changes reset the source before scheduling (subtitle=%s)",
 	(subtitle) => {
