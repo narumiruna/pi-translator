@@ -1,5 +1,11 @@
 # Manual Testing
 
+## Extension branding
+
+Before release, the maintainer must reload the renamed build in an existing Chrome profile and confirm that Chrome's extension list shows **Pi Translator** and saved settings and provider credentials remain available.
+This native Chrome upgrade check is not covered by the automated tests that use temporary profiles.
+Release remains blocked until this check passes.
+
 ## Test pages
 
 1. Run `npm run build`, then load `dist/chrome` from `chrome://extensions/`
@@ -76,8 +82,8 @@
 ## PDF translation
 
 1. Build and load `dist/chrome`, configure the translation API, and open `https://www.cs.princeton.edu/~chazelle/courses/BIB/jeannette-wing.pdf`
-2. Click the Vibe Translator toolbar action and approve only the PDF origin when Chrome requests permission
-3. Confirm a new Vibe PDF Reader tab opens while the original PDF tab remains available
+2. Click the Pi Translator toolbar action and approve only the PDF origin when Chrome requests permission
+3. Confirm a new Pi PDF Reader tab opens while the original PDF tab remains available
 4. Confirm the reader URL contains only an extension launch token and not the source URL or its query parameters
 5. Confirm all three original pages render, their text remains selectable, and page navigation and zoom work with mouse and keyboard
 6. Confirm the translation pane starts with the visible page and nearby pages, then fills progressively without replacing the original PDF
@@ -140,7 +146,7 @@
 ## YouTube subtitle translation
 
 1. Open an auto-caption watch page, including `https://www.youtube.com/watch?v=R3-anFK1YM8`
-2. Confirm the Vibe Translator icon appears beside YouTube’s caption control and remains inside the video frame
+2. Confirm the Pi Translator icon appears beside YouTube’s caption control and remains inside the video frame
 3. In Settings, choose **Translation only**, then click the in-player icon and confirm its diagnostic panel immediately reports that the click was received
 4. Confirm the icon turns active, the diagnostic panel reports startup progress, and available native captions are enabled
 5. Confirm the panel records sanitized track source, timed-prefetch availability, caption extraction, queueing, playback rate, window placement, cache path, fallback coalescing, API completion or failure, and render outcomes
@@ -205,7 +211,7 @@ Recovery and subtitle batch deadlines are internal constants. The background att
 - Packaged tests cover four actual worker stops, 31-second pauses, five real stalled SSE connections, the 30-second deadline, healthy SPA request cancellation, stale-message rejection, video replacement, both display modes, and cues at 600,000 and 1,200,000 ms.
 - Mock page, selection, iframe, reinjection, partial-failure, appearance, PDF, desktop/mobile layout, and fixed-height placement browser regressions passed. The Chrome ZIP was built and verified locally; no package or release was published.
 - CI runs the complete packaged fixture suite with `--fixture-only` and explicitly logs that the public-page smoke was not run. GitHub-hosted runners displayed YouTube's “Sign in to confirm you're not a bot” page; native controls were unavailable. The default command still requires the real-page smoke, which passed locally.
-- CI uploads fixture screenshots in the `vibe-translator-chrome` artifact under `e2e-artifacts/`, including `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. The local real-page capture is `youtube-live-player.png`. Screenshots are not committed.
+- CI uploads fixture screenshots in the `pi-translator-chrome` artifact under `e2e-artifacts/`, including `youtube-recovery-visible-bilingual.png`, `youtube-recovery-after-sse-timeout.png`, and `youtube-recovery-exhausted.png`. The local real-page capture is `youtube-live-player.png`. Screenshots are not committed.
 
 ### Remaining live checks
 
@@ -268,7 +274,7 @@ These checks are separate from automated-plan completion:
 1. Run `npm run dev` and confirm Extension.js reports background, content, options, and page contexts with timestamps
 2. Open `dist/extension-js/chrome/ready.json` and confirm the development build reaches a ready state
 3. Start page translation, edit a content entry module, and confirm one reload occurs without duplicate notes, runtime responses, observers, or API requests
-4. On YouTube, edit a content or control module and confirm only one Vibe Translator control and one delegated click handler remain
+4. On YouTube, edit a content or control module and confirm only one Pi Translator control and one delegated click handler remain
 5. Open and dismiss a selection panel, trigger reinjection, and confirm `Escape` and resize behavior run once
 6. Filter development logs by context label, URL, tab, and event name and confirm API keys, authorization values, prompts, selected text, source text, and response bodies are absent
 7. Run `PLAYWRIGHT_HEADLESS=1 npm run e2e:mock` twice with temporary profiles and confirm both runs pass
@@ -354,7 +360,7 @@ No real provider account, paid API, public YouTube live smoke, or release public
 
 Before-change Options captures are under `e2e-artifacts/reliability-before/`.
 After-change local captures are under `e2e-artifacts/reliability-options-after/` and `e2e-artifacts/pdf-reliability/`.
-CI produces the equivalent captures in its `vibe-translator-chrome` artifact under `e2e-artifacts/`, including `options-auth-api-key-light.png`, `options-auth-method-dark.png`, and `pdf-six-page-navigation.png`.
+CI produces the equivalent captures in its `pi-translator-chrome` artifact under `e2e-artifacts/`, including `options-auth-api-key-light.png`, `options-auth-method-dark.png`, and `pdf-six-page-navigation.png`.
 Screenshots and binary fixtures generated by these tests are not committed.
 
 ### Artifact review

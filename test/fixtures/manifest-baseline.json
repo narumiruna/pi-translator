@@ -23,7 +23,7 @@
 		"https://m.youtube.com/*"
 	],
 	"manifest_version": 3,
-	"name": "Vibe Translator",
+	"name": "Pi Translator",
 	"optional_host_permissions": ["http://*/*", "https://*/*"],
 	"permissions": ["activeTab", "contextMenus", "scripting", "storage"],
 	"sidePanel": {

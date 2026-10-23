@@ -58,7 +58,7 @@ export function createLogger(component, options = {}) {
 		};
 		const output = sink[level] || sink.log;
 
-		output.call(sink, "[Vibe Translator]", payload);
+		output.call(sink, "[Pi Translator]", payload);
 		return payload;
 	}
 

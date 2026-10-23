@@ -1,6 +1,6 @@
 {
 	"manifest_version": 3,
-	"name": "Vibe Translator",
+	"name": "Pi Translator",
 	"version": "0.1.3",
 	"description": "Translate web pages with pi-ai providers while keeping the original text visible.",
 	"permissions": ["activeTab", "contextMenus", "scripting", "storage"],

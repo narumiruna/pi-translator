@@ -421,7 +421,7 @@ async function loadPdfDocument(source) {
 		Pdf.sanitizePdfTitle(source.title),
 	);
 	elements.documentTitle.textContent = title;
-	document.title = `${title} — Vibe PDF Reader`;
+	document.title = `${title} — Pi PDF Reader`;
 	createSourcePlaceholders(filteredPages);
 	createTranslationPages(filteredPages);
 	setupPageObserver();
@@ -987,7 +987,7 @@ window.addEventListener("beforeunload", () => {
 
 if (!Pdf.isSafePdfId(launchToken)) {
 	showError(
-		"This PDF reader link is invalid. Open a PDF and click Vibe Translator again.",
+		"This PDF reader link is invalid. Open a PDF and click Pi Translator again.",
 	);
 } else {
 	connectPort();

@@ -64,7 +64,7 @@ PLAYWRIGHT_HEADLESS=1 npm run e2e:reddit
 
 ## YouTube Subtitle Regression Coverage
 
-The YouTube regression opens `https://www.youtube.com/watch?v=g7AxxkywiFI`, uses the production manifest's YouTube host permission, installs deterministic auto-generated caption metadata and native `.ytp-caption-segment` DOM fixtures inside the real YouTube player, and clicks the in-player Vibe Translator icon. It verifies the safe diagnostic panel, bounded control placement, active state, continuous replacement of native captions, compact player rendering, and rejection of late results from replaced cues:
+The YouTube regression opens `https://www.youtube.com/watch?v=g7AxxkywiFI`, uses the production manifest's YouTube host permission, installs deterministic auto-generated caption metadata and native `.ytp-caption-segment` DOM fixtures inside the real YouTube player, and clicks the in-player Pi Translator icon. It verifies the safe diagnostic panel, bounded control placement, active state, continuous replacement of native captions, compact player rendering, and rejection of late results from replaced cues:
 
 ```bash
 npm run e2e:youtube

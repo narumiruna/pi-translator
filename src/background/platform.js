@@ -373,7 +373,7 @@ export function createBackgroundPlatform(options = {}) {
 		});
 		await createOrUpdateContextMenu({
 			id: MENU_OPEN_PDF,
-			title: "Open current page in Vibe PDF Reader",
+			title: "Open current page in Pi PDF Reader",
 			contexts: ["page"],
 		});
 	}

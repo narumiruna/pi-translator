@@ -1,6 +1,6 @@
 # PDF test fixtures
 
-These files contain original test text written for Vibe Translator and are released under the repository's license.
+These files contain original test text written for Pi Translator and are released under the repository's license.
 They do not contain text or artwork copied from the Princeton acceptance document or another publication.
 
 - `two-column.pdf` is a three-page text PDF with two columns, repeated page furniture, a split word, a URL, identifiers, and a formula.

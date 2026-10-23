@@ -209,22 +209,22 @@ test("player control state exposes stable accessible labels", () => {
 	assert.deepEqual(resolvePlayerControlState("idle"), {
 		pressed: "false",
 		state: "idle",
-		title: "Translate subtitles with Vibe Translator",
+		title: "Translate subtitles with Pi Translator",
 	});
 	assert.deepEqual(resolvePlayerControlState("loading"), {
 		pressed: "false",
 		state: "loading",
-		title: "Starting Vibe Translator…",
+		title: "Starting Pi Translator…",
 	});
 	assert.deepEqual(resolvePlayerControlState("active"), {
 		pressed: "true",
 		state: "active",
-		title: "Vibe Translator subtitle translation is active",
+		title: "Pi Translator subtitle translation is active",
 	});
 	assert.deepEqual(resolvePlayerControlState("error"), {
 		pressed: "false",
 		state: "error",
-		title: "Vibe Translator could not start. Click to try again",
+		title: "Pi Translator could not start. Click to try again",
 	});
 });
 
@@ -232,7 +232,7 @@ test("player control surfaces runtime failures and settings recovery", () => {
 	assert.deepEqual(resolvePlayerControlError({}), {
 		openOptions: false,
 		state: "error",
-		title: "Vibe Translator could not start. Click to try again",
+		title: "Pi Translator could not start. Click to try again",
 	});
 	assert.deepEqual(
 		resolvePlayerControlError({
@@ -242,7 +242,7 @@ test("player control surfaces runtime failures and settings recovery", () => {
 		{
 			openOptions: true,
 			state: "error",
-			title: "Configure Vibe Translator, then click to try again",
+			title: "Configure Pi Translator, then click to try again",
 		},
 	);
 	assert.deepEqual(

@@ -13,22 +13,22 @@ const PLAYER_CONTROL_STATES = Object.freeze({
 	active: Object.freeze({
 		pressed: "true",
 		state: "active",
-		title: "Vibe Translator subtitle translation is active",
+		title: "Pi Translator subtitle translation is active",
 	}),
 	error: Object.freeze({
 		pressed: "false",
 		state: "error",
-		title: "Vibe Translator could not start. Click to try again",
+		title: "Pi Translator could not start. Click to try again",
 	}),
 	idle: Object.freeze({
 		pressed: "false",
 		state: "idle",
-		title: "Translate subtitles with Vibe Translator",
+		title: "Translate subtitles with Pi Translator",
 	}),
 	loading: Object.freeze({
 		pressed: "false",
 		state: "loading",
-		title: "Starting Vibe Translator…",
+		title: "Starting Pi Translator…",
 	}),
 });
 
@@ -41,10 +41,10 @@ function resolvePlayerControlState(state) {
 function resolvePlayerControlError(response) {
 	const rawError = String(response?.error || "").trim();
 	const openOptions = Boolean(response?.openOptions);
-	let title = "Vibe Translator could not start. Click to try again";
+	let title = "Pi Translator could not start. Click to try again";
 
 	if (openOptions) {
-		title = "Configure Vibe Translator, then click to try again";
+		title = "Configure Pi Translator, then click to try again";
 	} else if (rawError) {
 		title = `${rawError.replace(/\s*Click to try again\.?$/iu, "").replace(/[.!?]+$/u, "")}. Click to try again`;
 	}

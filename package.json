@@ -1,5 +1,5 @@
 {
-	"name": "vibe-translator",
+	"name": "pi-translator",
 	"private": true,
 	"scripts": {
 		"check": "npx --no-install biome ci && npm run lint:modules && npm test && npm run build && npm run verify:build",

@@ -327,7 +327,7 @@ function createCaptionTraceStore(options = {}) {
 
 function createDiagnosticReport(snapshot, events, notableEvents) {
 	return [
-		"Vibe Translator YouTube diagnostics",
+		"Pi Translator YouTube diagnostics",
 		JSON.stringify(
 			{
 				events: (events || []).map(normalizeDiagnosticEvent),

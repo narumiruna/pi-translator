@@ -642,6 +642,15 @@ async function main() {
 					config.baseUrl,
 			{ timeoutMessage: "Options settings did not load." },
 		);
+		assert.equal(
+			await page.evaluate(() => chrome.runtime.getManifest().name),
+			"Pi Translator",
+		);
+		assert.equal(await page.title(), "Pi Translator Settings");
+		assert.equal(
+			await page.locator(".brand p").first().textContent(),
+			"Pi Translator",
+		);
 		assert.equal(await page.locator(".radix-themes").count(), 1);
 		assert.match(
 			(await page.locator("#permission-status").textContent()) || "",

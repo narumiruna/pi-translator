@@ -38,7 +38,7 @@ const config = {
 			{
 				apply(compiler) {
 					compiler.hooks.entryOption.tap(
-						"VibeTranslatorModuleServiceWorkerChunks",
+						"PiTranslatorModuleServiceWorkerChunks",
 						(_context, entries) => {
 							const serviceWorker = entries?.["background/service_worker"];
 							if (serviceWorker) {
