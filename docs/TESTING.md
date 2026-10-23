@@ -79,6 +79,22 @@ Release remains blocked until this check passes.
 3. Confirm that inline code stays unchanged and that share controls do not receive translations.
 4. After a production build, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:github`. This uses a local fixture and mock provider to check comment coverage, scrolling, dynamic comments, and duplicate notes. It does not verify live-provider output.
 
+## X post translation
+
+1. Open `https://x.com/1Password/status/2113276767582498943` and start page translation.
+2. Confirm that the main post and visible replies receive inline translations below their source text.
+3. Scroll through replies and confirm that newly visible replies translate without duplicate notes.
+4. Confirm that account names, timestamps, and action controls do not receive translations.
+5. After a production build, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:x`.
+   - The local fixture checks posts without `data-tweet-id`, earlier X layouts, nested scrolling, dynamic replies, and visible note placement at desktop and mobile widths.
+   - The suite uses a mock provider and temporary profiles; it does not verify live-provider output.
+
+Chrome DevTools inspection found four post-text blocks on the reported page without `data-tweet-id` or `tweetText` attributes.
+The previous selectors matched no post text; the updated selector matched all four blocks.
+Local verification passed 630 unit tests, the production build, artifact verification, the X fixture at 1024 px and 390 px, layout regression, and the extension mock smoke suite.
+Fixture screenshots are saved to `e2e-artifacts/x-post-{1024,390}.png` and are not committed.
+Live packaged translation remains unverified because X rejected navigation in the temporary test browser with `net::ERR_HTTP_RESPONSE_CODE_FAILURE`.
+
 ## PDF translation
 
 1. Build and load `dist/chrome`, configure the translation API, and open `https://www.cs.princeton.edu/~chazelle/courses/BIB/jeannette-wing.pdf`
