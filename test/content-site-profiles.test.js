@@ -362,6 +362,13 @@ test("X extraction stays rooted at the scrolling post feed", () => {
 	);
 });
 
+test("X post selector does not require a tweet identity attribute", () => {
+	assert.equal(
+		X_CURRENT_POST_TEXT_SELECTOR,
+		'article div[dir="auto"].whitespace-pre-wrap:has(> span)',
+	);
+});
+
 test("X extraction selectors include X post text direct note targets", () => {
 	const selectors = createExtractionSelectorsForProfile(
 		resolveSiteProfile("x.com"),

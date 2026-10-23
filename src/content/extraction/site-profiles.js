@@ -16,7 +16,7 @@ const SCHIIT_ARTICLE_ROOT_SELECTOR =
 const SCHIIT_ARTICLE_TEXT_SELECTOR = `${SCHIIT_ARTICLE_ROOT_SELECTOR} > .body > div`;
 const X_TWEET_TEXT_SELECTOR = '[data-testid="tweetText"]';
 const X_CURRENT_POST_TEXT_SELECTOR =
-	'article[data-tweet-id] div[dir="auto"].whitespace-pre-wrap:has(> span)';
+	'article div[dir="auto"].whitespace-pre-wrap:has(> span)';
 const THREADS_TEXT_BLOCK_SELECTOR = 'div[lang]:has(> div > span[dir="auto"])';
 const YOUTUBE_CAPTION_ROOT_SELECTOR = "#ytp-caption-window-container";
 const YOUTUBE_CAPTION_TEXT_SELECTOR = `${YOUTUBE_CAPTION_ROOT_SELECTOR} .ytp-caption-segment`;

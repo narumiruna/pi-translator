@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X post extraction regression</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; line-height: 1.5; }
+      main { max-width: 38rem; margin: auto; padding: 1rem; }
+      article, .flex-col { display: flex; flex-direction: column; gap: 0.75rem; }
+      article { margin-bottom: 2rem; }
+      .whitespace-pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+      #replies { height: 24rem; overflow: auto; }
+      #current-post { margin-top: 80rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- The reported public post has neither tweetText nor data-tweet-id. -->
+      <article>
+        <div class="flex-col">
+          <div data-x-ui><a href="/1Password">1Password</a></div>
+          <div id="main-post" data-x-prose dir="auto" class="whitespace-pre-wrap"><span>Today we announce 1Password for Agents platform, building with companies </span><span><a href="/Muse">@Muse</a></span><span>, </span><span><a href="/AnthropicAI">@AnthropicAI</a></span><span>, and </span><span><a href="/OpenAI">@OpenAI</a></span><span>, with more integrations on the way.
+
+We've heard from customers who want personal AI agents to help them get more done, but want more control over what the agent can access.
+
+1Password for Agents gives your agents access without giving up your passwords. When an agent reaches a sign-in form, it requests a credential from your vault. If you approve the request, 1Password directly auto-fills the credential in the destination site.
+
+The agent gets the task done, but it does not get your passwords. Unless you opt in to an agent connector, agents cannot touch your vault.</span></div>
+          <div data-x-ui><time>10:30 PM · Oct 22, 2026</time></div>
+          <div data-x-ui><button type="button">Reply</button><button type="button">Share</button></div>
+        </div>
+      </article>
+      <div id="replies">
+        <!-- biome-ignore lint/a11y/useSemanticElements: Match the native X reply wrapper. -->
+        <div role="link" tabindex="0">
+          <article>
+            <div class="flex-col">
+              <div data-x-ui><a href="/tryramp">@tryramp</a></div>
+              <div id="reply" data-x-prose dir="auto" class="whitespace-pre-wrap"><span>What an unlock for agents</span></div>
+            </div>
+          </article>
+        </div>
+        <article data-tweet-id="fixture-current">
+          <div id="current-post" data-x-prose dir="auto" class="whitespace-pre-wrap"><span>This post uses the earlier X layout with a tweet identity attribute.</span></div>
+        </article>
+        <article>
+          <div id="legacy-post" data-x-prose data-testid="tweetText"><span>This post uses the original X tweetText attribute.</span></div>
+        </article>
+      </div>
+      <div data-x-ui dir="auto" class="whitespace-pre-wrap"><span>Log in or sign up for X</span></div>
+    </main>
+  </body>
+</html>
