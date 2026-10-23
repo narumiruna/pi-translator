@@ -146,7 +146,7 @@ test("YouTube diagnostic reports redact secrets", () => {
 		],
 	);
 
-	assert.match(report, /Vibe Translator YouTube diagnostics/);
+	assert.match(report, /Pi Translator YouTube diagnostics/);
 	assert.match(report, /notableEvents/);
 	assert.match(report, /prefetch-fallback/);
 	assert.match(report, /\[redacted\]/);

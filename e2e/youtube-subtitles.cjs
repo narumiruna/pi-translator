@@ -385,7 +385,7 @@ async function main() {
 		const player = page.locator("#movie_player");
 		const control = player.locator("[data-ot-youtube-control]");
 		await waitFor(async () => (await control.count()) === 1, {
-			timeoutMessage: "The Vibe Translator player control did not appear.",
+			timeoutMessage: "The Pi Translator player control did not appear.",
 		});
 		const controlBounds = await control.boundingBox();
 		const playerBounds = await player.boundingBox();
@@ -406,7 +406,7 @@ async function main() {
 		assert.equal(await control.getAttribute("aria-pressed"), "false");
 		assert.match(
 			(await control.getAttribute("aria-label")) || "",
-			/Translate subtitles with Vibe Translator/,
+			/Translate subtitles with Pi Translator/,
 		);
 		assert.equal(
 			await control.evaluate((element) => getComputedStyle(element).color),
@@ -924,13 +924,13 @@ async function main() {
 		);
 		assert.match(
 			(await reloadedControl.getAttribute("aria-label")) || "",
-			/(Configure Vibe Translator|could not start)/,
+			/(Configure Pi Translator|could not start)/,
 		);
 		assert.match(
 			(await page
 				.locator('[data-ot-role="youtube-diagnostics"]')
 				.textContent()) || "",
-			/(Configure Vibe Translator|could not start)/,
+			/(Configure Pi Translator|could not start)/,
 		);
 		assert.equal(await reloadedControl.getAttribute("aria-pressed"), "false");
 

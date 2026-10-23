@@ -31,7 +31,7 @@ function OptionsHeader() {
 					</span>
 					<div>
 						<Text as="p" size="3" weight="bold">
-							Vibe Translator
+							Pi Translator
 						</Text>
 						<Text as="p" color="gray" size="1">
 							Read beyond language.

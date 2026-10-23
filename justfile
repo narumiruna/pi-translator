@@ -65,4 +65,4 @@ zip:
 
 clean:
     @rm -rf dist/chrome dist/firefox
-    @rm -f chrome-translator-*.zip vibe-translator-*.zip
+    @rm -f chrome-translator-*.zip vibe-translator-*.zip pi-translator-*.zip dist/pi-translator-*.zip

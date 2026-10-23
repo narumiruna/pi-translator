@@ -63,8 +63,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: vibe-translator-chrome
+          name: pi-translator-chrome
           if-no-files-found: warn
           path: |
-            dist/chrome/*.zip
+            dist/pi-translator-*-chrome.zip
             e2e-artifacts/

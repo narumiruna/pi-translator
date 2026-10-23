@@ -391,6 +391,7 @@ async function main() {
 				),
 			{ timeoutMessage: "PDF page status did not settle." },
 		);
+		assert.match(await reader.title(), / — Pi PDF Reader$/u);
 		assert.equal(
 			await reader.locator(".translation-block:empty").count(),
 			0,

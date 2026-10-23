@@ -43,7 +43,7 @@ test("structured logger emits bounded correlation metadata", () => {
 		translatedCount: 3,
 	});
 
-	assert.deepEqual(entries, [{ prefix: "[Vibe Translator]", payload }]);
+	assert.deepEqual(entries, [{ prefix: "[Pi Translator]", payload }]);
 	assert.deepEqual(payload, {
 		component: "content",
 		event: "render-complete",

@@ -140,7 +140,7 @@ export function createYoutubeRuntime(options = {}) {
 			panel = document.createElement("aside");
 			panel.setAttribute(ROOT_ATTR, "youtube-diagnostics");
 			panel.setAttribute("aria-live", "polite");
-			panel.setAttribute("aria-label", "Vibe Translator diagnostics");
+			panel.setAttribute("aria-label", "Pi Translator diagnostics");
 			pageState.youtubeDiagnostics.panel = panel;
 			player.appendChild(panel);
 		}
@@ -152,7 +152,7 @@ export function createYoutubeRuntime(options = {}) {
 		const pauseButton = document.createElement("button");
 		const closeButton = document.createElement("button");
 
-		title.textContent = "Vibe Translator diagnostics";
+		title.textContent = "Pi Translator diagnostics";
 		status.setAttribute("data-ot-diagnostic-status", "");
 		status.textContent = pageState.youtubeDiagnostics.status;
 		output.textContent =

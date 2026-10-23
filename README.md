@@ -1,4 +1,4 @@
-# Vibe Translator
+# Pi Translator
 
 A Manifest V3 Chrome extension that translates web pages through `@earendil-works/pi-ai`. Translations appear inline next to the original text so you can read both side by side.
 
@@ -96,11 +96,11 @@ PDF bytes stay in the browser, while extracted text is sent to the configured tr
 
 1. Open a text-based HTTP or HTTPS PDF in Chrome
 2. Click the extension icon and approve access to that PDF origin if Chrome asks
-3. Read the selectable original pages beside progressive translations in the Vibe PDF Reader tab
+3. Read the selectable original pages beside progressive translations in the Pi PDF Reader tab
 4. Navigate or scroll to prioritize nearby pages, or choose **Translate entire document** after reviewing its character estimate
 5. Use **Choose PDF** as a fallback for a local, authenticated, redirected, or encrypted file
 
-![Vibe PDF Reader showing original pages beside progressive translations](docs/images/pdf-reader.png)
+![Pi PDF Reader showing original pages beside progressive translations](docs/images/pdf-reader.png)
 
 Scanned image-only documents report that OCR is not supported.
 Formula-heavy and uncertain structured regions remain visible in the original PDF instead of being translated as prose.
@@ -109,7 +109,7 @@ The reader never modifies the source PDF and does not export a translated PDF.
 ### Translate YouTube subtitles
 
 1. Open a YouTube video that provides native or auto-generated captions
-2. Click the Vibe Translator icon inside the video’s bottom control bar; it turns on available captions and starts subtitle translation
+2. Click the Pi Translator icon inside the video’s bottom control bar; it turns on available captions and starts subtitle translation
 3. In Settings, choose **Original and translation** for a bilingual view or **Translation only** to hide each matched native cue after its translation is ready
 4. Play the video; the extension keeps about 60 seconds of real-time lead by requesting 60 seconds at 1×, 90 seconds at 1.5×, and 120 seconds at 2×
 5. Continue playing, change speed, or seek elsewhere; rate changes resize the rolling window, seeks prioritize the new position, and visible-caption translation remains the fallback when timed captions are unavailable
@@ -145,7 +145,7 @@ npm run preview   # preview the production Chrome build
 npm run check     # module checks, unit tests, production build, artifact verification
 npm run e2e:mock  # production-artifact Playwright smoke suite with a local API
 npm run e2e:pdf   # PDF reader Playwright smoke suite with local PDF and API fixtures
-npm run pack      # production build plus dist/chrome/vibe-translator-<version>.zip
+npm run pack      # production build plus dist/pi-translator-<version>-chrome.zip
 npm run icons     # regenerate extension icon PNGs from icons/icon.svg
 ```
 
