@@ -242,7 +242,9 @@ Independent diff review covered correctness, privacy, seek/session lifecycle, co
 Local evidence uses the production bundle and mock API only; no package, version tag, or release was published.
 Diagnostic reports are saved as `e2e-artifacts/youtube-rendering-{translation-only,bilingual}-{before,after}.txt`.
 Screenshots are saved as `e2e-artifacts/youtube-rendering-{translation-only,bilingual}.png`.
-These files are not committed; the existing CI artifact upload includes them under `vibe-translator-chrome`.
+These files are not committed; the CI artifact upload includes them under `pi-translator-chrome`.
+[CI run 39922127808](https://github.com/narumiruna/pi-translator/actions/runs/39922127808) passed all checks on the pull request merge result.
+Its [artifact](https://github.com/narumiruna/pi-translator/actions/runs/39922127808/artifacts/12487798283) contains both screenshots and all four diagnostic reports.
 The before reports show startup and an earlier successful render; they are not captures of the affected user's installed extension.
 The after reports and timeline assertions show safe translations during continued mutations, not only after the final stable caption.
 
