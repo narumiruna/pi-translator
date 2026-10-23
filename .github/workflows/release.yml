@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create version pull request
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: npm run version
+          title: "chore(release): version extension"
+          commit: "chore(release): version extension"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check release state
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm run verify:version
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | [.tag_name, .draft] | @tsv')
+          if grep -Fxq "$tag"$'\tfalse' <<< "$releases"; then
+            echo "Release $tag already exists."
+            exit 0
+          fi
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            if [ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $tag points to another commit. Do not move published tags."
+              exit 1
+            fi
+          fi
+          draft=false
+          if grep -Fxq "$tag"$'\ttrue' <<< "$releases"; then
+            draft=true
+          fi
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "asset=dist/pi-translator-$version-chrome.zip" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run checks
+        if: steps.state.outputs.publish == 'true'
+        run: npm run check
+
+      - name: Pack Chrome extension
+        if: steps.state.outputs.publish == 'true'
+        env:
+          ASSET: ${{ steps.state.outputs.asset }}
+        run: |
+          set -euo pipefail
+          npm run pack
+          test -s "$ASSET"
+          unzip -t "$ASSET"
+
+      - name: Upload Chrome ZIP
+        if: steps.state.outputs.publish == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pi-translator-${{ steps.state.outputs.tag }}-chrome
+          path: ${{ steps.state.outputs.asset }}
+          if-no-files-found: error
+
+      - name: Push Git tag
+        if: steps.state.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.state.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git show-ref --verify --quiet "refs/tags/$TAG"; then
+            git tag "$TAG" "$GITHUB_SHA"
+          fi
+          git push origin "refs/tags/$TAG"
+
+      - name: Create GitHub Release
+        if: steps.state.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.state.outputs.tag }}
+          ASSET: ${{ steps.state.outputs.asset }}
+          DRAFT: ${{ steps.state.outputs.draft }}
+        run: |
+          set -euo pipefail
+          if [ "$DRAFT" != true ]; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes --draft
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+          gh release edit "$TAG" --draft=false

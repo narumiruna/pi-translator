@@ -157,6 +157,12 @@ The Husky pre-commit hook formats, lints, and organizes imports in staged suppor
 For manual production testing, load `dist/chrome` from `chrome://extensions/`.
 Do not load the repository root because source modules are not the store artifact.
 
+## Releases
+
+Run `npm run changeset` and commit the generated file with each user-visible change.
+The release workflow opens a version pull request, then builds a verified Chrome ZIP, pushes a `v<version>` Git tag, and creates a GitHub Release after that pull request is merged.
+See [Release procedure](docs/RELEASING.md) for permissions and recovery.
+
 ## Notes
 
 - The extension never auto-translates on navigation; it must be triggered manually each time

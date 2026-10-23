@@ -93,15 +93,16 @@ function isNodeBuiltinSpecifier(specifier) {
 async function verifyBuild() {
 	await init;
 	const manifestPath = path.join(buildDir, "manifest.json");
-	const [manifest, baseline, files] = await Promise.all([
+	const [manifest, baseline, packageJson, files] = await Promise.all([
 		readJson(manifestPath),
 		readJson(baselinePath),
+		readJson(path.join(rootDir, "package.json")),
 		listFiles(buildDir),
 	]);
 
 	assert.deepEqual(
 		normalizeManifest(manifest),
-		baseline,
+		{ ...baseline, version: packageJson.version },
 		"Generated manifest behavior differs from the reviewed baseline.",
 	);
 	assert.equal(
