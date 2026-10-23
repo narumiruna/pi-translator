@@ -14,24 +14,24 @@ function createCaptionFallbackStore(options = {}) {
 	const supersededLimit = normalizeLimit(options.supersededLimit);
 	const slots = new Map();
 	const slotByActiveId = new Map();
-	const supersededIds = new Set();
+	const supersededIds = new Map();
 	const failures = new Map();
 	let coalescedFallbackCount = 0;
 	let supersededResultCount = 0;
 
-	function rememberSupersededId(id) {
+	function rememberSupersededId(id, invalidated) {
 		if (!id) {
 			return;
 		}
 
 		supersededIds.delete(id);
-		supersededIds.add(id);
+		supersededIds.set(id, Boolean(invalidated));
 		while (supersededIds.size > supersededLimit) {
-			supersededIds.delete(supersededIds.values().next().value);
+			supersededIds.delete(supersededIds.keys().next().value);
 		}
 	}
 
-	function supersedeSlot(slotId) {
+	function supersedeSlot(slotId, invalidated = false) {
 		const state = slots.get(slotId);
 
 		if (!state) {
@@ -40,7 +40,7 @@ function createCaptionFallbackStore(options = {}) {
 
 		slots.delete(slotId);
 		slotByActiveId.delete(state.activeId);
-		rememberSupersededId(state.activeId);
+		rememberSupersededId(state.activeId, invalidated);
 		return true;
 	}
 
@@ -97,6 +97,12 @@ function createCaptionFallbackStore(options = {}) {
 		}
 	}
 
+	function invalidate() {
+		for (const id of supersededIds.keys()) supersededIds.set(id, true);
+		for (const slotId of slots.keys()) supersedeSlot(slotId, true);
+		failures.clear();
+	}
+
 	function fail(id, options = {}) {
 		const slotId = slotByActiveId.get(id);
 		const state = slots.get(slotId);
@@ -125,9 +131,15 @@ function createCaptionFallbackStore(options = {}) {
 	}
 
 	function settle(id) {
+		const invalidated = supersededIds.get(id);
 		if (supersededIds.delete(id)) {
 			supersededResultCount += 1;
-			return { shouldRetry: false, superseded: true, tracked: true };
+			return {
+				shouldRetry: false,
+				superseded: true,
+				tracked: true,
+				...(invalidated ? { invalidated: true } : {}),
+			};
 		}
 
 		const slotId = slotByActiveId.get(id);
@@ -178,7 +190,16 @@ function createCaptionFallbackStore(options = {}) {
 		};
 	}
 
-	return { clear, fail, getLatest, getSummary, offer, retain, settle };
+	return {
+		clear,
+		fail,
+		getLatest,
+		getSummary,
+		invalidate,
+		offer,
+		retain,
+		settle,
+	};
 }
 
 export { createCaptionFallbackStore };

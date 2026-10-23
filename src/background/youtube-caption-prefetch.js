@@ -89,7 +89,13 @@ function createYoutubeCaptionPrefetch(options = {}) {
 	}
 
 	async function initialize(context = {}) {
+		const attemptSource =
+			context.attemptSource === "native-request"
+				? "native-request"
+				: "advertised";
+		let httpStatus;
 		const unavailable = {
+			attemptSource,
 			available: false,
 			cueCount: 0,
 			queued: 0,
@@ -108,27 +114,24 @@ function createYoutubeCaptionPrefetch(options = {}) {
 				tabId: context.tabId,
 			});
 
-		let unavailableReason = "";
-
-		if (!context.tabId) {
-			unavailableReason = "Browser tab was unavailable";
-		} else if (!context.sessionId) {
-			unavailableReason = "Translation session was unavailable";
-		} else if (!isTrustedYoutubeCaptionUrl(context.baseUrl)) {
-			unavailableReason = "Timed caption URL was missing or untrusted";
-		} else if (typeof fetchImpl !== "function") {
-			unavailableReason = "Timed caption fetch was unavailable";
-		}
-
-		if (unavailableReason) {
+		function fail(reason) {
+			const status = httpStatus === undefined ? {} : { httpStatus };
 			onDiagnostic(
 				"prefetch-fallback",
-				`${unavailableReason}; using visible captions`,
+				`attempt=${attemptSource}; reason=${reason}${httpStatus === undefined ? "" : `; status=${httpStatus}`}; using visible captions`,
 				context,
 			);
-			return unavailable;
+			return { ...unavailable, ...status, reason };
 		}
 
+		if (!context.tabId) return fail("missing-tab");
+		if (!context.sessionId) return fail("missing-session");
+		if (!context.baseUrl) return fail("missing-url");
+		if (!isTrustedYoutubeCaptionUrl(context.baseUrl))
+			return fail("untrusted-url");
+		if (typeof fetchImpl !== "function") return fail("fetch-unavailable");
+
+		let failureReason = "network-error";
 		try {
 			context.signal?.throwIfAborted();
 			const response = await waitForAbortable(
@@ -140,21 +143,25 @@ function createYoutubeCaptionPrefetch(options = {}) {
 			);
 			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
 
-			if (!response?.ok) {
-				throw new Error(
-					`Timed caption request failed with status ${response?.status || "unknown"}`,
-				);
-			}
+			if (
+				Number.isInteger(response?.status) &&
+				response.status >= 100 &&
+				response.status <= 599
+			)
+				httpStatus = response.status;
+			if (!response?.ok) return fail("http-error");
 
-			const body = await waitForAbortable(response.json(), context.signal);
+			const text = await waitForAbortable(response.text(), context.signal);
 			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
+			if (!text.trim()) return fail("empty-body");
+			failureReason = "invalid-json";
+			const body = JSON.parse(text);
+			failureReason = "no-cues";
 			const cues = TimedCaptions.parseJson3Captions(body).map(
 				(cue, cueIndex) => ({ ...cue, cueIndex }),
 			);
 
-			if (cues.length === 0) {
-				throw new Error("Timed caption response did not contain usable cues");
-			}
+			if (cues.length === 0) return fail("no-cues");
 
 			sessions.set(context.tabId, {
 				cues,
@@ -162,16 +169,22 @@ function createYoutubeCaptionPrefetch(options = {}) {
 				sessionId: context.sessionId,
 				tabId: context.tabId,
 			});
-			const result = await update({ ...context, reason: "startup" });
+			failureReason = "enqueue-error";
+			const result = await waitForAbortable(
+				update({ ...context, reason: "startup" }),
+				context.signal,
+			);
 			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
 
 			onDiagnostic(
 				"prefetch-ready",
-				`Loaded ${cues.length} timed caption cue(s); queued ${result.queued} for the initial playback window`,
+				`attempt=${attemptSource}; Loaded ${cues.length} timed caption cue(s); queued ${result.queued} for the initial playback window`,
 				context,
 			);
 
 			return {
+				attemptSource,
+				...(httpStatus === undefined ? {} : { httpStatus }),
 				available: true,
 				cueCount: cues.length,
 				queued: result.queued,
@@ -179,12 +192,9 @@ function createYoutubeCaptionPrefetch(options = {}) {
 			};
 		} catch (_error) {
 			if (!isCurrent()) return { ...unavailable, sessionStatus: "stale" };
-			onDiagnostic(
-				"prefetch-fallback",
-				"Timed captions unavailable; using visible captions",
-				context,
-			);
-			return unavailable;
+			const session = getSession(context);
+			if (session) session.cues = null;
+			return fail(failureReason);
 		}
 	}
 

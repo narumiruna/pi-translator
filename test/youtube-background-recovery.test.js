@@ -4,6 +4,7 @@ import { ProviderRuntime } from "../src/auth/runtime.js";
 import { createBackgroundController } from "../src/background/controller.js";
 import { createBackgroundPlatform } from "../src/background/platform.js";
 import { createYoutubeCaptionPrefetch } from "../src/background/youtube-caption-prefetch.js";
+import { createDiagnosticStore } from "../src/content/youtube/diagnostics.js";
 import * as Messages from "../src/shared/messages.js";
 import * as Settings from "../src/shared/settings.js";
 import * as TranslationSession from "../src/shared/translation-session.js";
@@ -547,18 +548,19 @@ test.each([true, false])(
 					? new Promise((resolve) => {
 							resolveOld = resolve;
 						})
-					: Promise.resolve({
-							ok: true,
-							json: async () => ({
-								events: [
-									{
-										tStartMs: 600000,
-										dDurationMs: 1000,
-										segs: [{ utf8: "Cue" }],
-									},
-								],
-							}),
-						}),
+					: Promise.resolve(
+							new Response(
+								JSON.stringify({
+									events: [
+										{
+											tStartMs: 600000,
+											dDurationMs: 1000,
+											segs: [{ utf8: "Cue" }],
+										},
+									],
+								}),
+							),
+						),
 		});
 		const old = prefetch.initialize({
 			tabId: 1,
@@ -570,14 +572,16 @@ test.each([true, false])(
 			sessionId: "new",
 			baseUrl: "https://www.youtube.com/api/timedtext?v=new",
 		});
-		resolveOld({
-			ok,
-			json: async () => ({
-				events: [
-					{ tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "Old cue" }] },
-				],
-			}),
-		});
+		resolveOld(
+			new Response(
+				JSON.stringify({
+					events: [
+						{ tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "Old cue" }] },
+					],
+				}),
+				{ status: ok ? 200 : 403 },
+			),
+		);
 		await old;
 		const result = await prefetch.update({
 			tabId: 1,
@@ -790,6 +794,321 @@ test.each(["enable", "native", "fetch"])(
 	},
 );
 
+function acquisitionFixture(options = {}) {
+	const advertisedUrl =
+		"https://www.youtube.com/api/timedtext?v=video-a&lang=en&signature=secret-signature";
+	const nativeUrl = `${advertisedUrl}&pot=secret-proof`;
+	const fetches = [];
+	const f = fixture({
+		executeScript: async ({ func }) =>
+			func.name === "probeYoutubeCaptionState"
+				? [
+						{
+							result: {
+								enabled: true,
+								currentTimeMs: 0,
+								playbackRate: 1,
+								trackCandidates: {
+									currentVideoId: "video-a",
+									playerResponse: {
+										videoId: "video-a",
+										tracks: [{ baseUrl: advertisedUrl, languageCode: "en" }],
+									},
+								},
+							},
+						},
+					]
+				: [
+						{
+							result: options.sameUrl
+								? [advertisedUrl]
+								: options.noNative
+									? []
+									: [nativeUrl],
+						},
+					],
+		fetch: async (url, init) => {
+			fetches.push({ url, init });
+			if (options.fetch) return options.fetch(url, init);
+			if (new URL(url).searchParams.has("pot") && !options.nativeSuccess)
+				return new Response("", { status: 200 });
+			if (options.advertisedFailure)
+				return new Response("secret-body", { status: 403 });
+			return new Response(
+				JSON.stringify({
+					events: [
+						{
+							tStartMs: 0,
+							dDurationMs: 1000,
+							segs: [{ utf8: "secret-caption" }],
+						},
+					],
+				}),
+			);
+		},
+	});
+	return { ...f, fetches };
+}
+
+function acquisitionDiagnostics(f) {
+	return f.sent
+		.filter(
+			(message) =>
+				message.type === Messages.MESSAGE_TYPES.RENDER_YOUTUBE_DIAGNOSTIC_EVENT,
+		)
+		.map((message) => message.payload);
+}
+
+test.each([false, true])(
+	"native empty response then advertised failure=%s preserves both safe outcomes and first failure",
+	async (advertisedFailure) => {
+		const f = acquisitionFixture({ advertisedFailure });
+		const result = await f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+			videoKey: "video-a",
+			requestId: "acquisition",
+			recovery: true,
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.prefetch.available, !advertisedFailure);
+		assert.deepEqual(
+			f.fetches.map(({ url }) => new URL(url).searchParams.has("pot")),
+			[true, false],
+		);
+		assert.ok(
+			f.fetches.every(
+				({ init }) =>
+					init.credentials === "include" && init.signal instanceof AbortSignal,
+			),
+		);
+		const firstFailure = {
+			attemptSource: "native-request",
+			reason: "empty-body",
+			httpStatus: 200,
+		};
+		assert.deepEqual(result.prefetch.firstFailure, firstFailure);
+		assert.deepEqual(result.prefetch.attempts, [
+			firstFailure,
+			{
+				attemptSource: "advertised",
+				reason: advertisedFailure ? "http-error" : "ready",
+				httpStatus: advertisedFailure ? 403 : 200,
+			},
+		]);
+		const events = acquisitionDiagnostics(f);
+		const summary = events.find(({ stage }) => stage === "prefetch-attempts");
+		assert.equal(
+			summary.detail,
+			`attempt=native-request; reason=empty-body; status=200 | attempt=advertised; reason=${advertisedFailure ? "http-error; status=403" : "ready; status=200"}; available=${!advertisedFailure}`,
+		);
+		const store = createDiagnosticStore();
+		for (const { stage, detail } of events) store.add(stage, detail);
+		for (let i = 0; i < 100; i += 1)
+			store.add("caption-update", "bounded event");
+		assert.match(
+			store
+				.getNotableEvents()
+				.find(({ stage }) => stage === "prefetch-fallback").detail,
+			/attempt=native-request; reason=empty-body; status=200/u,
+		);
+		assert.equal(
+			store
+				.getNotableEvents()
+				.find(({ stage }) => stage === "prefetch-attempts").detail,
+			summary.detail,
+		);
+		assert.doesNotMatch(
+			JSON.stringify({ result, events, retained: store.getNotableEvents() }),
+			/secret|https:|signature=|pot=|secret-caption/u,
+		);
+		f.controller.removePageTranslationState(1);
+	},
+);
+
+test("native network failure is retained after advertised success without raw exception details", async () => {
+	const f = acquisitionFixture({
+		fetch: async (url) => {
+			if (new URL(url).searchParams.has("pot"))
+				throw new Error(`secret-exception ${url}`);
+			return new Response(
+				JSON.stringify({
+					events: [
+						{
+							tStartMs: 0,
+							dDurationMs: 1000,
+							segs: [{ utf8: "secret-caption" }],
+						},
+					],
+				}),
+			);
+		},
+	});
+	const result = await f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+		videoKey: "video-a",
+		recovery: true,
+	});
+	assert.equal(result.prefetch.available, true);
+	assert.deepEqual(result.prefetch.firstFailure, {
+		attemptSource: "native-request",
+		reason: "network-error",
+	});
+	assert.deepEqual(result.prefetch.attempts, [
+		result.prefetch.firstFailure,
+		{ attemptSource: "advertised", reason: "ready", httpStatus: 200 },
+	]);
+	assert.equal(f.fetches.length, 2);
+	assert.doesNotMatch(
+		JSON.stringify({ result, events: acquisitionDiagnostics(f) }),
+		/secret|https:/u,
+	);
+	f.controller.removePageTranslationState(1);
+});
+
+test("missing track records one advertised missing-url outcome without fetching", async () => {
+	const fetch = vi.fn();
+	const f = fixture({ fetch });
+	const result = await f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+		videoKey: "video-a",
+		recovery: true,
+	});
+	assert.equal(result.prefetch.available, false);
+	assert.deepEqual(result.prefetch.attempts, [
+		{ attemptSource: "advertised", reason: "missing-url" },
+	]);
+	assert.equal(fetch.mock.calls.length, 0);
+	assert.match(
+		acquisitionDiagnostics(f).find(({ stage }) => stage === "prefetch-attempts")
+			.detail,
+		/attempt=advertised; reason=missing-url; available=false/u,
+	);
+	f.controller.removePageTranslationState(1);
+});
+
+test("advertised timeout retains the earlier native failure and stays within the startup deadline", async () => {
+	vi.useFakeTimers();
+	const f = acquisitionFixture({
+		fetch: async (url) =>
+			new URL(url).searchParams.has("pot")
+				? new Response("")
+				: new Promise(() => {}),
+	});
+	const operation = f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+		videoKey: "video-a",
+		recovery: true,
+	});
+	await flush();
+	await vi.advanceTimersByTimeAsync(30000);
+	const result = await operation;
+	assert.equal(result.ok, true);
+	assert.equal(result.prefetch.available, false);
+	assert.deepEqual(result.prefetch.attempts, [
+		{ attemptSource: "native-request", reason: "empty-body", httpStatus: 200 },
+		{ attemptSource: "advertised", reason: "request-timeout" },
+	]);
+	assert.deepEqual(result.prefetch.firstFailure, result.prefetch.attempts[0]);
+	assert.equal(f.fetches.length, 2);
+	assert.equal(vi.getTimerCount(), 0);
+	const events = acquisitionDiagnostics(f);
+	const store = createDiagnosticStore();
+	for (const { stage, detail } of events) store.add(stage, detail);
+	assert.match(
+		store.getNotableEvents().find(({ stage }) => stage === "prefetch-fallback")
+			.detail,
+		/reason=empty-body/u,
+	);
+	assert.match(
+		events.find(({ stage }) => stage === "prefetch-attempts").detail,
+		/attempt=advertised; reason=request-timeout; available=false/u,
+	);
+	assert.doesNotMatch(JSON.stringify({ result, events }), /secret|https:/u);
+	f.controller.removePageTranslationState(1);
+});
+
+test.each([{ nativeSuccess: true }, { noNative: true }, { sameUrl: true }])(
+	"acquisition uses only the required attempt: %j",
+	async (options) => {
+		const f = acquisitionFixture(options);
+		const result = await f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+			videoKey: "video-a",
+			recovery: true,
+		});
+		assert.equal(result.prefetch.available, true);
+		assert.equal(f.fetches.length, 1);
+		assert.deepEqual(result.prefetch.attempts, [
+			{
+				attemptSource: options.noNative ? "advertised" : "native-request",
+				reason: "ready",
+				httpStatus: 200,
+			},
+		]);
+		assert.equal(Object.hasOwn(result.prefetch, "firstFailure"), false);
+		if (!options.noNative)
+			assert.equal(result.captions.trackSource, "native-request");
+		f.controller.removePageTranslationState(1);
+	},
+);
+
+test("identical native and advertised URL failures do not add a duplicate retry", async () => {
+	const f = acquisitionFixture({ sameUrl: true, advertisedFailure: true });
+	const result = await f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+		videoKey: "video-a",
+		recovery: true,
+	});
+	assert.equal(result.prefetch.available, false);
+	assert.equal(f.fetches.length, 1);
+	assert.deepEqual(result.prefetch.firstFailure, {
+		attemptSource: "native-request",
+		reason: "http-error",
+		httpStatus: 403,
+	});
+	f.controller.removePageTranslationState(1);
+});
+
+test.each(["native-request", "advertised"])(
+	"cancelled %s acquisition cannot start another attempt or emit late diagnostics",
+	async (attemptSource) => {
+		let release;
+		let entered;
+		const started = new Promise((resolve) => {
+			entered = resolve;
+		});
+		const f = acquisitionFixture({
+			fetch: async (url) => {
+				if (
+					attemptSource === "advertised" &&
+					new URL(url).searchParams.has("pot")
+				)
+					return new Response("");
+				entered();
+				return new Promise((resolve) => {
+					release = resolve;
+				});
+			},
+		});
+		const operation = f.send("START_YOUTUBE_SUBTITLE_TRANSLATION", {
+			videoKey: "video-a",
+			requestId: "cancel-acquisition",
+			recovery: true,
+		});
+		await started;
+		const before = acquisitionDiagnostics(f);
+		assert.equal(
+			(
+				await f.send("CANCEL_YOUTUBE_SUBTITLE_TRANSLATION", {
+					videoKey: "video-a",
+					requestId: "cancel-acquisition",
+				})
+			).cancelled,
+			true,
+		);
+		assert.equal((await operation).reason, "cancelled");
+		release(new Response("secret-body"));
+		await flush();
+		assert.equal(f.fetches.length, attemptSource === "native-request" ? 1 : 2);
+		assert.deepEqual(acquisitionDiagnostics(f), before);
+		assert.equal(f.controller.pageTranslationQueue.get(1), null);
+	},
+);
+
 test("recovery bounds credential setup and cannot start late after timeout", async () => {
 	vi.useFakeTimers();
 	let finish;
@@ -857,16 +1176,16 @@ test("timed sessions stay active across empty windows and ten and twenty minute 
 			offered.push(...items);
 			return { queued: items.length, sessionStatus: "active" };
 		},
-		fetch: async () => ({
-			ok: true,
-			json: async () => ({
-				events: [600000, 1200000].map((tStartMs) => ({
-					tStartMs,
-					dDurationMs: 1000,
-					segs: [{ utf8: "Cue" }],
-				})),
-			}),
-		}),
+		fetch: async () =>
+			new Response(
+				JSON.stringify({
+					events: [600000, 1200000].map((tStartMs) => ({
+						tStartMs,
+						dDurationMs: 1000,
+						segs: [{ utf8: "Cue" }],
+					})),
+				}),
+			),
 	});
 	const context = {
 		tabId: 1,
@@ -875,6 +1194,8 @@ test("timed sessions stay active across empty windows and ten and twenty minute 
 	};
 	const initial = await prefetch.initialize(context);
 	assert.deepEqual(initial, {
+		attemptSource: "advertised",
+		httpStatus: 200,
 		available: true,
 		cueCount: 2,
 		queued: 0,

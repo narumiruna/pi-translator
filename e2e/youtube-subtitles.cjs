@@ -18,6 +18,7 @@ const {
 	routeYoutubeFixture,
 } = require("./lib/youtube-fixture.cjs");
 const { runYoutubeRecoveryCases } = require("./lib/youtube-recovery.cjs");
+const { runYoutubeRenderingCases } = require("./lib/youtube-rendering.cjs");
 const { runLiveYoutubePlayerSmoke } = require("./lib/youtube-live-player.cjs");
 
 const YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v=subtitle-regression";
@@ -266,7 +267,7 @@ async function stopSuppressingVisibleCaptions(page) {
 
 async function installCaptionTrackMetadata(page, options = {}) {
 	await page.evaluate(
-		async ({ timedTrack }) => {
+		async ({ timedTrack, baseUrl }) => {
 			const player = document.querySelector("#movie_player");
 			const currentVideoId =
 				player?.getVideoData?.()?.video_id ||
@@ -276,6 +277,7 @@ async function installCaptionTrackMetadata(page, options = {}) {
 				...(timedTrack
 					? {
 							baseUrl:
+								baseUrl ||
 								"https://www.youtube.com/api/timedtext?v=vibe-translator-e2e&lang=en&kind=asr",
 						}
 					: {}),
@@ -325,7 +327,7 @@ async function installCaptionTrackMetadata(page, options = {}) {
 				});
 			}
 		},
-		{ timedTrack: options.timedTrack !== false },
+		{ timedTrack: options.timedTrack !== false, baseUrl: options.baseUrl },
 	);
 }
 
@@ -894,6 +896,15 @@ async function main() {
 		assert.match(fallbackDiagnostics, /"timedTrackAvailable": false/);
 		assert.doesNotMatch(fallbackDiagnostics, /api\/timedtext/u);
 		assert.doesNotMatch(fallbackDiagnostics, /missing target [1-9]/);
+
+		await runYoutubeRenderingCases({
+			...runState,
+			config,
+			mockApiServer,
+			installCaptionFixture,
+			installCaptionTrackMetadata,
+			waitForCaptionTranslation,
+		});
 
 		await runYoutubeRecoveryCases({
 			...runState,

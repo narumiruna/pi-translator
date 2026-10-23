@@ -17,6 +17,7 @@ export function createSourceAnalyzer(options = {}) {
 		ExtractionApi,
 		SubtitleApi,
 		isInsideTranslation,
+		getExistingNoteForSource,
 		debugSkip,
 		normalizeInlineWhitespace,
 		normalizeSegmentText,
@@ -180,13 +181,28 @@ export function createSourceAnalyzer(options = {}) {
 			return false;
 		}
 
-		const style = window.getComputedStyle(element);
+		let target = element;
+		if (
+			SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE) &&
+			element.matches?.(SubtitleApi.YOUTUBE_CAPTION_SEGMENT_SELECTOR) &&
+			element.getAttribute?.(SubtitleApi.SUBTITLE_REPLACED_ATTR) === "true" &&
+			element.getAttribute?.(STALE_ATTR) === "true"
+		) {
+			const id = element.getAttribute(SOURCE_ATTR);
+			const note = id && getExistingNoteForSource?.(element, id);
+			// Translation-only mode hides the native segment. Its visible note
+			// remains the anchor while a progressive caption needs a refresh.
+			if (note?.isConnected && note.getAttribute("data-phase") === "ready") {
+				target = note;
+			}
+		}
+		const style = window.getComputedStyle(target);
 
 		if (style.visibility === "hidden" || style.display === "none") {
 			return false;
 		}
 
-		const rect = element.getBoundingClientRect();
+		const rect = target.getBoundingClientRect();
 
 		return rect.width > 0 && rect.height > 0;
 	}

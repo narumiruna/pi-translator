@@ -141,6 +141,7 @@ export function createContentRuntime(options = {}) {
 		TimedCaptionApi,
 		Messages,
 		scheduleVisibleTranslation: scheduleVisiblePageTranslation,
+		resetSubtitleObserver: () => pageObserverRuntime.resetPendingMutations(),
 	});
 
 	function setSourceQueued(element, queued) {
@@ -270,6 +271,7 @@ export function createContentRuntime(options = {}) {
 		ExtractionApi,
 		SubtitleApi,
 		isInsideTranslation,
+		getExistingNoteForSource,
 		debugSkip,
 		normalizeInlineWhitespace,
 		normalizeSegmentText,
