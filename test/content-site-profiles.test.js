@@ -19,6 +19,8 @@ import {
 	SCHIIT_ARTICLE_ROOT_SELECTOR,
 	SCHIIT_ARTICLE_TEXT_SELECTOR,
 	THREADS_TEXT_BLOCK_SELECTOR,
+	X_ARTICLE_TEXT_SELECTOR,
+	X_ARTICLE_TITLE_SELECTOR,
 	X_CURRENT_POST_TEXT_SELECTOR,
 	X_TWEET_TEXT_SELECTOR,
 	YOUTUBE_CAPTION_ROOT_SELECTOR,
@@ -109,6 +111,13 @@ test("default extraction selectors exclude site-only social selectors", () => {
 		selectors.READABLE_BLOCK_SELECTOR.includes(THREADS_TEXT_BLOCK_SELECTOR),
 		false,
 	);
+	for (const selector of [X_ARTICLE_TITLE_SELECTOR, X_ARTICLE_TEXT_SELECTOR]) {
+		assert.equal(selectors.READABLE_BLOCK_SELECTOR.includes(selector), false);
+		assert.equal(
+			selectors.DIRECT_NOTE_TARGET_SELECTOR.includes(selector),
+			false,
+		);
+	}
 });
 
 test("site profiles compile into generic content capabilities", () => {
@@ -383,6 +392,26 @@ test("X extraction selectors include X post text direct note targets", () => {
 			X_CURRENT_POST_TEXT_SELECTOR,
 		),
 	);
+});
+
+test("X Article title and Draft.js text are readable direct note targets", () => {
+	const profile = resolveSiteProfile("x.com");
+	const selectors = createExtractionSelectorsForProfile(profile);
+
+	assert.equal(
+		X_ARTICLE_TITLE_SELECTOR,
+		'[data-testid="twitter-article-title"]',
+	);
+	assert.equal(
+		X_ARTICLE_TEXT_SELECTOR,
+		'[data-testid="twitterArticleRichTextView"] :is(div[data-block="true"], div.longform-unstyled):not(section[data-block="true"] *)',
+	);
+	for (const selector of [X_ARTICLE_TITLE_SELECTOR, X_ARTICLE_TEXT_SELECTOR]) {
+		assert.ok(profile.textBlockSelectors.includes(selector));
+		assert.ok(selectors.READABLE_BLOCK_SELECTOR.includes(selector));
+		assert.ok(selectors.EXPLICIT_TEXT_BLOCK_SELECTOR.includes(selector));
+		assert.ok(selectors.DIRECT_NOTE_TARGET_SELECTOR.includes(selector));
+	}
 });
 
 test("Threads extraction selectors include Threads post text direct note targets", () => {

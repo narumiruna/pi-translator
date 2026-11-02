@@ -93,7 +93,28 @@ Chrome DevTools inspection found four post-text blocks on the reported page with
 The previous selectors matched no post text; the updated selector matched all four blocks.
 Local verification passed 630 unit tests, the production build, artifact verification, the X fixture at 1024 px and 390 px, layout regression, and the extension mock smoke suite.
 Fixture screenshots are saved to `e2e-artifacts/x-post-{1024,390}.png` and are not committed.
-Live packaged translation remains unverified because X rejected navigation in the temporary test browser with `net::ERR_HTTP_RESPONSE_CODE_FAILURE`.
+The earlier live packaged test was blocked because X rejected navigation in the temporary test browser with `net::ERR_HTTP_RESPONSE_CODE_FAILURE`.
+
+### X Articles
+
+1. Load the updated production build and open `https://x.com/DeepSeekHarness/status/2116857257245987236`.
+2. Start page translation and confirm that the title, body paragraphs, headings, and list items receive translations.
+3. Scroll to the end and back, including previously untranslated paragraphs; confirm that each eligible source has one visible note below its text.
+4. Confirm that account metadata, attachment controls, code attachments, hidden blocks, and editable drafts remain unchanged.
+5. Run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:x`.
+   - The Article fixture mixes semantic blocks with native Draft.js `div[data-block="true"]` and class-only `div.longform-unstyled` paragraphs.
+   - It checks the separate `twitter-article-title`, an absent `twitterArticleReadView` wrapper, inline markup, offscreen and dynamically inserted paragraphs, unchanged source text, and excluded UI and atomic-section descendants.
+   - At 1024 px and 390 px, all ten Article sources must have exactly one visible translation without changing the native text.
+   - Screenshots are saved to `e2e-artifacts/x-article-{1024,390}.png` and are not committed.
+
+The native Article structure is corroborated by [Tiro PR #76](https://github.com/hutusi/tiro/pull/76) and [OmniMux PR #3633](https://github.com/omnimux-ai/omnimux-dsh/pull/3633).
+Before the fix, the packaged fixture translated its semantic introduction but timed out on `#article-paragraph`.
+The public page inspected through Chrome DevTools used semantic blocks rather than the native Draft.js renderer.
+A replay of that public DOM with the production extension, a mock API delayed by 500 ms, and sequential scrolling rendered all 161 extractor-approved sources before the selector fix.
+This result does not establish the cause of the affected user’s partial translation.
+The affected user must load the candidate and confirm the previously missing paragraphs; the installed renderer and live-provider behavior remain unverified.
+Final local verification passed `npm run check` (640 unit tests), both X fixture widths, layout regression, and the extension mock smoke suite.
+No API permissions, dependencies, or settings were changed.
 
 ## PDF translation
 

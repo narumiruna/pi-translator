@@ -16,19 +16,33 @@ const {
 
 const TARGET_URL = "https://x.com/1Password/status/2113276767582498943";
 const SOURCE_IDS = ["main-post", "reply", "current-post", "legacy-post"];
+const ARTICLE_URL = "https://x.com/DeepSeekHarness/status/2116857257245987236";
+const ARTICLE_SOURCE_IDS = [
+	"article-title",
+	"article-intro",
+	"article-heading",
+	"article-paragraph",
+	"article-inline",
+	"article-short",
+	"article-class-paragraph",
+	"article-list",
+	"article-last",
+];
 
 async function inspectSource(source) {
 	return source.evaluate((element) => {
-		const id = element.getAttribute("data-ot-source-id");
+		const anchor = element.hasAttribute("data-ot-source-id")
+			? element
+			: element.querySelector("[data-ot-source-id]");
+		const id = anchor?.getAttribute("data-ot-source-id");
 		const notes = id
 			? [...document.querySelectorAll(`[data-ot-note-id="${CSS.escape(id)}"]`)]
 			: [];
 		const ready = notes.filter(
 			(note) => note.getAttribute("data-phase") === "ready",
 		);
-		const nativeSpans = [...element.children].filter(
-			(child) =>
-				child.tagName === "SPAN" && !child.hasAttribute("data-ot-role"),
+		const nativeSpans = [...element.querySelectorAll("span")].filter(
+			(child) => !child.closest("[data-ot-role]"),
 		);
 		const nativeBottom = nativeSpans.at(-1).getBoundingClientRect().bottom;
 		return {
@@ -68,6 +82,70 @@ async function requireReadyNote(page, id) {
 	});
 }
 
+async function checkArticle(page, context, fixture, width, artifactsDir) {
+	await page.route(ARTICLE_URL, (route) =>
+		route.fulfill({
+			body: fixture,
+			contentType: "text/html; charset=utf-8",
+		}),
+	);
+	await page.goto(ARTICLE_URL, { waitUntil: "domcontentloaded" });
+	const originals = await page.locator("[data-x-prose]").allTextContents();
+	const response = await callBackground(context, "translatePage", {
+		pageUrl: page.url(),
+	});
+	assert.equal(response?.ok, true, JSON.stringify(response));
+	// Semantic blocks translated before the fix; Draft.js paragraphs did not.
+	await requireReadyNote(page, "article-intro");
+	await requireReadyNote(page, "article-paragraph");
+	for (const id of ARTICLE_SOURCE_IDS) {
+		await requireReadyNote(page, id);
+	}
+	await page.evaluate(() => {
+		const block = document.createElement("div");
+		block.id = "article-dynamic";
+		block.setAttribute("data-block", "true");
+		block.innerHTML =
+			'<div class="public-DraftStyleDefault-block"><span data-text="true">A newly loaded article paragraph must translate without restarting the page session.</span></div>';
+		document.querySelector('[data-contents="true"]').append(block);
+	});
+	await requireReadyNote(page, "article-dynamic");
+	for (const id of [...ARTICLE_SOURCE_IDS].reverse()) {
+		await requireReadyNote(page, id);
+	}
+	assert.equal(
+		await page
+			.locator(
+				"[data-x-ui] [data-ot-source-id], [data-x-ui][data-ot-source-id]",
+			)
+			.count(),
+		0,
+	);
+	assert.equal(
+		await page.locator('[data-ot-role="note"]').count(),
+		ARTICLE_SOURCE_IDS.length + 1,
+	);
+	assert.deepEqual(
+		await page.locator("[data-x-prose]").evaluateAll((elements) =>
+			elements.map((element) => {
+				const clone = element.cloneNode(true);
+				for (const note of clone.querySelectorAll("[data-ot-role]")) {
+					note.remove();
+				}
+				return clone.textContent;
+			}),
+		),
+		originals,
+	);
+	await page.locator("#article-title").scrollIntoViewIfNeeded();
+	await page.screenshot({
+		path: path.join(artifactsDir, `x-article-${width}.png`),
+	});
+	console.log(
+		JSON.stringify({ width, articleSources: ARTICLE_SOURCE_IDS.length + 1 }),
+	);
+}
+
 async function main() {
 	const config = getConfig();
 	assert.equal(
@@ -77,6 +155,10 @@ async function main() {
 	);
 	const fixture = await fs.readFile(
 		path.join(ROOT_DIR, "test/x-post-page.html"),
+		"utf8",
+	);
+	const articleFixture = await fs.readFile(
+		path.join(ROOT_DIR, "test/x-article-page.html"),
 		"utf8",
 	);
 	const mockApi = await createMockApiServer();
@@ -149,6 +231,14 @@ async function main() {
 					errors,
 				}),
 			);
+			await checkArticle(
+				page,
+				runState.context,
+				articleFixture,
+				width,
+				config.artifactsDir,
+			);
+			assert.deepEqual(errors, []);
 			await page.close();
 		}
 	} finally {

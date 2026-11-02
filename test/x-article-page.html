@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>X Article extraction regression</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; line-height: 1.5; }
+      main { max-width: 38rem; margin: auto; padding: 1rem; }
+      article { display: flex; flex-direction: column; gap: 0.75rem; }
+      [data-block], [data-testid="twitter-article-title"] { overflow-wrap: anywhere; }
+      [data-testid="twitter-article-title"] { font-size: 1.5rem; font-weight: bold; }
+      .public-DraftStyleDefault-block { white-space: pre-wrap; }
+      [data-block] { margin-bottom: 1rem; }
+      #article-last { margin-top: 80rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div data-testid="primaryColumn">
+        <!-- The rich-text selector must not require twitterArticleReadView. -->
+        <article>
+          <div data-x-ui><a href="/DeepSeekHarness">DeepSeek Harness</a></div>
+          <div id="article-title" data-x-prose data-testid="twitter-article-title"><span>Exploring Super-agent Design: Towards a More Autonomous Agent System</span></div>
+          <div data-x-ui data-block="true"><span>30 min read</span></div>
+          <div data-testid="twitterArticleRichTextView">
+            <div data-testid="longformRichTextComponent">
+              <div class="DraftEditor-root">
+                <div class="DraftEditor-editorContainer">
+                  <div contenteditable="false">
+                    <div data-contents="true">
+                      <blockquote id="article-intro" data-x-prose><span>This article discusses architectural ideas rather than existing product features.</span></blockquote>
+                      <h2 id="article-heading" data-x-prose data-block="true" data-editor="article" data-offset-key="heading-0-0"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr longform-header-two"><span data-offset-key="heading-0-0"><span data-text="true">1. Super-agent</span></span></div></h2>
+                      <div id="article-paragraph" data-x-prose data-block="true" data-editor="article" data-offset-key="paragraph-0-0"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr longform-unstyled"><span data-offset-key="paragraph-0-0"><span data-text="true">A continuous agent can coordinate several independent tasks while users focus on decisions. Each task keeps a separate context, and a shared routing layer receives events from the places where people already work.</span></span></div></div>
+                      <div id="article-inline" data-x-prose data-block="true" data-editor="article" data-offset-key="inline-0-0"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr longform-unstyled"><span data-offset-key="inline-0-0"><span data-text="true">The </span></span><span data-offset-key="inline-0-1"><strong data-text="true">Router</strong></span><span data-offset-key="inline-0-2"><span data-text="true"> dispatches tasks to isolated workers. See </span></span><a href="https://github.com/deepseek-ai/dsh-superagent-prototype"><span data-text="true">the prototype</span></a><span data-offset-key="inline-0-3"><span data-text="true"> for an example of this separation.</span></span></div></div>
+                      <div id="article-short" data-x-prose data-block="true"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr longform-unstyled"><span data-text="true">Workers execute tasks.</span></div></div>
+                      <div id="article-class-paragraph" data-x-prose class="longform-unstyled"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr"><span data-text="true">This paragraph uses the native longform class without a data-block attribute.</span></div></div>
+                      <ul>
+                        <li id="article-list" data-x-prose data-block="true"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr"><span data-text="true">Persistent agents stay available across devices and recover after interruptions.</span></div></li>
+                      </ul>
+                      <div data-x-ui data-block="true"><div class="public-DraftStyleDefault-block"><span data-text="true"><br /></span></div></div>
+                      <section data-x-ui data-block="true"><div class="longform-unstyled"><span>Image attachment controls must not become article prose.</span></div></section>
+                      <section data-x-ui data-block="true"><div data-block="true"><span>Code attachment controls must not become article prose.</span></div><pre><code>const router = createRouter();</code></pre></section>
+                      <div data-x-ui contenteditable="true"><div data-block="true"><span data-text="true">An editable draft must not be sent for page translation.</span></div></div>
+                      <div data-x-ui data-block="true" hidden><span data-text="true">A hidden paragraph must not be queued.</span></div>
+                      <div id="article-last" data-x-prose data-block="true" data-editor="article" data-offset-key="last-0-0"><div class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr longform-unstyled"><span data-offset-key="last-0-0"><span data-text="true">This later paragraph must translate when it enters the viewport, even when earlier headings and paragraphs already have translations.</span></span></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div data-x-ui><time>10:30 PM</time><button type="button">Reply</button><button type="button">Share</button></div>
+        </article>
+      </div>
+    </main>
+  </body>
+</html>
