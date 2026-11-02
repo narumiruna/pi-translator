@@ -100,6 +100,8 @@
 - Symptom: X/Twitter post pages show no translatable text or cannot render a note.
   - Cause: tweet bodies may be either `div[data-testid="tweetText"]` or `article[data-tweet-id] div[dir="auto"].whitespace-pre-wrap`, and X may wrap them in an identity CSS transform.
   - Fix: treat tweet text variants as readable direct note targets and allow identity transforms in note insertion checks.
+- [UNREVIEWED] Scope native X Article `div[data-block="true"]` and `div.longform-unstyled` text selectors to `[data-testid="twitterArticleRichTextView"]`, and handle `[data-testid="twitter-article-title"]` separately.
+  - Do not require a `twitterArticleReadView` wrapper or include atomic `section[data-block="true"]` descendants in the explicit text selector.
 - Symptom: Threads post pages show no inline page translations.
   - Cause: post bodies are `div[lang]` blocks with `span[dir="auto"]`, include a nested native `Translate` button, and may sit inside a `perspective: 1px` scroll region.
   - Fix: treat those language blocks as social text, skip interactive descendants during extraction, and do not treat ancestor perspective alone as unsafe for note insertion.

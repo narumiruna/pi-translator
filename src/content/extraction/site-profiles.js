@@ -15,6 +15,9 @@ const SCHIIT_ARTICLE_ROOT_SELECTOR =
 	"body:where(.faq, .guides) #content-box .product > .pad";
 const SCHIIT_ARTICLE_TEXT_SELECTOR = `${SCHIIT_ARTICLE_ROOT_SELECTOR} > .body > div`;
 const X_TWEET_TEXT_SELECTOR = '[data-testid="tweetText"]';
+const X_ARTICLE_TITLE_SELECTOR = '[data-testid="twitter-article-title"]';
+const X_ARTICLE_TEXT_SELECTOR =
+	'[data-testid="twitterArticleRichTextView"] :is(div[data-block="true"], div.longform-unstyled):not(section[data-block="true"] *)';
 const X_CURRENT_POST_TEXT_SELECTOR =
 	'article div[dir="auto"].whitespace-pre-wrap:has(> span)';
 const THREADS_TEXT_BLOCK_SELECTOR = 'div[lang]:has(> div > span[dir="auto"])';
@@ -99,6 +102,8 @@ const SITE_PROFILES = Object.freeze([
 		textBlockSelectors: Object.freeze([
 			X_TWEET_TEXT_SELECTOR,
 			X_CURRENT_POST_TEXT_SELECTOR,
+			X_ARTICLE_TITLE_SELECTOR,
+			X_ARTICLE_TEXT_SELECTOR,
 		]),
 		rootSelectors: Object.freeze([
 			'[data-testid="primaryColumn"]',
@@ -185,6 +190,8 @@ export {
 	SCHIIT_ARTICLE_TEXT_SELECTOR,
 	SITE_PROFILES,
 	THREADS_TEXT_BLOCK_SELECTOR,
+	X_ARTICLE_TEXT_SELECTOR,
+	X_ARTICLE_TITLE_SELECTOR,
 	X_CURRENT_POST_TEXT_SELECTOR,
 	X_TWEET_TEXT_SELECTOR,
 	YOUTUBE_CAPTION_ROOT_SELECTOR,
