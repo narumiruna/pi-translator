@@ -13,6 +13,17 @@ Release remains blocked until this check passes.
 3. Prepare one additional article-style page with more content than one viewport so scroll-triggered queuing is easy to verify
 4. Prepare one page containing inline code, file paths, URLs, or math so protected fragment rendering can be checked
 
+## Chromium launch on WSLg
+
+The shared E2E launcher adds `--ozone-platform=wayland` only when the effective `headless` option is `false`, the platform is Linux, and `WAYLAND_DISPLAY` is set with a WSL indicator.
+The WSL indicator is `WSL_DISTRO_NAME`, `WSL_INTEROP`, or a kernel release that contains `microsoft` (case-insensitive).
+The launcher preserves the extension arguments, browser channel, executable path, and headless overrides.
+Headless runs and headed runs outside WSLg keep their original launch options.
+
+1. Run `npm test -- test/e2e-launch-options.test.js` to verify the platform, environment, override, and argument-preservation cases without starting a browser.
+2. On WSLg with a working Wayland socket, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=0 npm run e2e:x` to check headed Chromium with the packaged extension and mock API.
+3. Run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:x` to check the unchanged headless path.
+
 ## Options page
 
 1. Open the extension options page

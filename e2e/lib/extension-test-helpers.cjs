@@ -250,15 +250,26 @@ async function clearChromiumProfileLocks(userDataDir) {
 }
 
 function createLaunchOptions(config, forceHeadless, extensionDir = ROOT_DIR) {
+	const headless = forceHeadless ?? config.headless;
+	const args = [
+		`--disable-extensions-except=${extensionDir}`,
+		`--load-extension=${extensionDir}`,
+	];
+	if (
+		headless === false &&
+		os.platform() === "linux" &&
+		getEnvValue("WAYLAND_DISPLAY") &&
+		(getEnvValue("WSL_DISTRO_NAME", "WSL_INTEROP") ||
+			/microsoft/i.test(os.release()))
+	) {
+		args.push("--ozone-platform=wayland");
+	}
 	return {
-		headless: forceHeadless ?? config.headless,
+		headless,
 		channel: config.executablePath ? undefined : config.browserChannel,
 		executablePath: config.executablePath || undefined,
 		ignoreDefaultArgs: ["--disable-extensions"],
-		args: [
-			`--disable-extensions-except=${extensionDir}`,
-			`--load-extension=${extensionDir}`,
-		],
+		args,
 	};
 }
 
@@ -683,6 +694,7 @@ module.exports = {
 	REQUEST_TIMEOUT_MS,
 	callBackground,
 	closeExtensionContext,
+	createLaunchOptions,
 	createMockApiServer,
 	createStaticServer,
 	getApiPermissionPattern,
