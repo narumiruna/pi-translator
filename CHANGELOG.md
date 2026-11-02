@@ -1,5 +1,11 @@
 # pi-translator
 
+## 0.1.5
+
+### Patch Changes
+
+- 3cab8f9: Translate native X Article titles and Draft.js body paragraphs that were skipped while semantic blocks translated.
+
 ## 0.1.4
 
 ### Patch Changes
