@@ -28,6 +28,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { qwenTokenPlanProvider } from "@earendil-works/pi-ai/providers/qwen-token-plan";
 import { qwenTokenPlanCnProvider } from "@earendil-works/pi-ai/providers/qwen-token-plan-cn";
 import { qwenTokenPlanIndividualProvider } from "@earendil-works/pi-ai/providers/qwen-token-plan-individual";
+import { qwenTokenPlanIndividualCnProvider } from "@earendil-works/pi-ai/providers/qwen-token-plan-individual-cn";
 import { radiusProvider } from "@earendil-works/pi-ai/providers/radius";
 import { togetherProvider } from "@earendil-works/pi-ai/providers/together";
 import { vercelAIGatewayProvider } from "@earendil-works/pi-ai/providers/vercel-ai-gateway";
@@ -70,6 +71,7 @@ const BROWSER_PROVIDER_FACTORIES = Object.freeze([
 	qwenTokenPlanProvider,
 	qwenTokenPlanCnProvider,
 	qwenTokenPlanIndividualProvider,
+	qwenTokenPlanIndividualCnProvider,
 	radiusProvider,
 	togetherProvider,
 	vercelAIGatewayProvider,
