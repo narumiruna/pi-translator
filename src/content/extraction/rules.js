@@ -431,11 +431,15 @@ function isVisibleTranslationRoot(element) {
 		return true;
 	}
 
-	if (style?.display !== "contents") {
+	if (
+		style?.display !== "contents" &&
+		style?.visibility !== "hidden" &&
+		style?.visibility !== "collapse"
+	) {
 		return false;
 	}
 
-	// A display: contents root has no box. Check its readable descendants.
+	// Boxless or hidden roots can have visible readable descendants.
 	return Array.from(element.querySelectorAll(READABLE_BLOCK_SELECTOR)).some(
 		(descendant) =>
 			descendant.checkVisibility?.({ visibilityProperty: true }) === true &&

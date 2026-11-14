@@ -19,6 +19,9 @@ async function checkRootVisibility(page, origin) {
 			"hidden-contents-ancestor",
 			"hidden-contents-text",
 			"hidden-contents-content",
+			"visibility-override",
+			"offscreen-visibility-override",
+			"collapse-override",
 		]) {
 			await page.goto(`${origin}/test/root-visibility-page.html`);
 			const result = await page.evaluate(async (mode) => {
@@ -30,7 +33,14 @@ async function checkRootVisibility(page, origin) {
 				const hidden = embedded ? cache : gist;
 				const offscreen = mode.startsWith("offscreen");
 				if (mode.includes("contents")) gist.style.display = "contents";
-				if (embedded) {
+				if (mode.endsWith("override")) {
+					cache.style.visibility =
+						mode === "collapse-override" ? "collapse" : "hidden";
+					for (const block of cache.querySelectorAll("h1, p, li")) {
+						block.style.visibility = "visible";
+					}
+					if (offscreen) cache.style.marginTop = "10000px";
+				} else if (embedded) {
 					cache.hidden = true;
 					embed.hidden = false;
 					if (offscreen) embed.style.marginTop = "10000px";
@@ -154,7 +164,12 @@ async function checkRootVisibility(page, origin) {
 			if (mode.startsWith("offscreen"))
 				assert.equal(result.initialItems, 0, label);
 			if (
-				["hidden-ancestor", "visible-embed", "contents-embed"].includes(mode)
+				[
+					"hidden-ancestor",
+					"visible-embed",
+					"contents-embed",
+					"visibility-override",
+				].includes(mode)
 			) {
 				await page.screenshot({
 					path: path.join(artifactsDir, `root-visibility-${mode}-${width}.png`),
