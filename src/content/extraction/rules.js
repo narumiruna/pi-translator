@@ -419,6 +419,30 @@ function scoreCandidateBlock(element, text, options = {}) {
 	);
 }
 
+function isVisibleTranslationRoot(element) {
+	const view = element.ownerDocument?.defaultView;
+	const style = view?.getComputedStyle(element);
+
+	if (style?.contentVisibility === "hidden") {
+		return false;
+	}
+
+	if (element.checkVisibility?.({ visibilityProperty: true }) !== false) {
+		return true;
+	}
+
+	if (style?.display !== "contents") {
+		return false;
+	}
+
+	// A display: contents root has no box. Check its readable descendants.
+	return Array.from(element.querySelectorAll(READABLE_BLOCK_SELECTOR)).some(
+		(descendant) =>
+			descendant.checkVisibility?.({ visibilityProperty: true }) === true &&
+			view.getComputedStyle(descendant).contentVisibility !== "hidden",
+	);
+}
+
 function scoreTranslationRoot(element, options = {}) {
 	const doc = options.document || globalThis.document || {};
 	const isInsideTranslation =
@@ -432,9 +456,7 @@ function scoreTranslationRoot(element, options = {}) {
 
 	if (
 		!element?.isConnected ||
-		element.checkVisibility?.({ visibilityProperty: true }) === false ||
-		element.ownerDocument?.defaultView?.getComputedStyle(element)
-			.contentVisibility === "hidden" ||
+		!isVisibleTranslationRoot(element) ||
 		isInsideTranslation(element) ||
 		isTranslatorOwned(element)
 	) {

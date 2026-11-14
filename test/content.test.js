@@ -691,6 +691,38 @@ test("hidden article roots are excluded without excluding offscreen roots", () =
 	}
 });
 
+test("display-contents roots require a visible readable descendant", () => {
+	for (const tagName of ["MAIN", "ARTICLE"]) {
+		for (const [visible, contentVisibility, eligible] of [
+			[true, "visible", true],
+			[false, "visible", false],
+			[true, "hidden", false],
+		]) {
+			const root = createFakeElement({
+				innerText: "A boxless root contains readable article prose. ".repeat(4),
+				semanticCount: 4,
+				tagName,
+			});
+			const descendant = { checkVisibility: () => visible };
+			const querySelectorAll = root.querySelectorAll.bind(root);
+			root.querySelectorAll = (selector) =>
+				selector === READABLE_BLOCK_SELECTOR
+					? [descendant]
+					: querySelectorAll(selector);
+			root.checkVisibility = () => false;
+			root.ownerDocument = {
+				defaultView: {
+					getComputedStyle: (element) =>
+						element === root
+							? { display: "contents", contentVisibility: "visible" }
+							: { display: "block", contentVisibility },
+				},
+			};
+			assert.equal(Number.isFinite(scoreTranslationRoot(root)), eligible);
+		}
+	}
+});
+
 test("root content hidden by content-visibility is excluded even when its box is visible", () => {
 	const article = createFakeElement({
 		innerText:

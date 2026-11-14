@@ -14,6 +14,11 @@ async function checkRootVisibility(page, origin) {
 			"content-visibility-hidden",
 			"visible-embed",
 			"offscreen-embed",
+			"contents-embed",
+			"offscreen-contents-embed",
+			"hidden-contents-ancestor",
+			"hidden-contents-text",
+			"hidden-contents-content",
 		]) {
 			await page.goto(`${origin}/test/root-visibility-page.html`);
 			const result = await page.evaluate(async (mode) => {
@@ -23,16 +28,24 @@ async function checkRootVisibility(page, origin) {
 				const embedded = mode.endsWith("embed");
 				const visible = embedded ? gist : cache;
 				const hidden = embedded ? cache : gist;
+				const offscreen = mode.startsWith("offscreen");
+				if (mode.includes("contents")) gist.style.display = "contents";
 				if (embedded) {
 					cache.hidden = true;
 					embed.hidden = false;
-					if (mode === "offscreen-embed") embed.style.marginTop = "10000px";
-				} else if (mode !== "hidden-ancestor") {
+					if (offscreen) embed.style.marginTop = "10000px";
+				} else if (!mode.endsWith("ancestor")) {
 					embed.hidden = false;
 					if (mode === "display-none") gist.style.display = "none";
 					if (mode === "visibility-hidden") gist.style.visibility = "hidden";
 					if (mode === "content-visibility-hidden") {
 						gist.style.contentVisibility = "hidden";
+					}
+					if (mode === "hidden-contents-text") gist.style.visibility = "hidden";
+					if (mode === "hidden-contents-content") {
+						for (const block of gist.querySelectorAll("h1, p, li")) {
+							block.style.contentVisibility = "hidden";
+						}
 					}
 				}
 
@@ -69,8 +82,8 @@ async function checkRootVisibility(page, origin) {
 				);
 				const first = start();
 				let extraction = first;
-				if (mode === "offscreen-embed") {
-					visible.scrollIntoView();
+				if (offscreen) {
+					sources[0].scrollIntoView();
 					extraction = start();
 				}
 				const render = () =>
@@ -97,6 +110,10 @@ async function checkRootVisibility(page, origin) {
 					hiddenBound: hidden.querySelectorAll(
 						'[data-ot-source-id], [data-ot-role="note"]',
 					).length,
+					relatedBound: document
+						.querySelector("#related")
+						.querySelectorAll('[data-ot-source-id], [data-ot-role="note"]')
+						.length,
 					notesVisible: [
 						...visible.querySelectorAll('[data-ot-role="note"]'),
 					].every(
@@ -128,17 +145,21 @@ async function checkRootVisibility(page, origin) {
 			assert.equal(result.repeatItems, 0, label);
 			assert.equal(result.readyNotes, result.expected, label);
 			assert.equal(result.hiddenBound, 0, label);
+			assert.equal(result.relatedBound, 0, label);
 			assert.equal(result.notesVisible, true, label);
 			assert.equal(result.originalsPreserved, true, label);
 			assert.ok(Number.isFinite(result.visibleScore), label);
 			assert.equal(result.hiddenScore, Number.NEGATIVE_INFINITY, label);
 			assert.equal(result.overflow, false, label);
-			if (mode === "offscreen-embed")
+			if (mode.startsWith("offscreen"))
 				assert.equal(result.initialItems, 0, label);
-			if (mode === "hidden-ancestor" || mode === "visible-embed") {
+			if (
+				["hidden-ancestor", "visible-embed", "contents-embed"].includes(mode)
+			) {
 				await page.screenshot({
 					path: path.join(artifactsDir, `root-visibility-${mode}-${width}.png`),
 					fullPage: true,
+					animations: "disabled",
 				});
 			}
 		}
