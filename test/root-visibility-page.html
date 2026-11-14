@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hidden article copies</title>
+    <style>
+      body { margin: 0; }
+      article { max-width: 40rem; margin: auto; padding: 1rem; }
+      table { width: 100%; table-layout: fixed; }
+      [hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <article id="cache">
+      <h1>A readable cached manifesto</h1>
+      <p>The cached article remains readable when the remote document loads too late.</p>
+      <ol>
+        <li>Readers must be able to understand the original text and its translation.</li>
+        <li>A hidden duplicate must not prevent translation of the visible article.</li>
+      </ol>
+    </article>
+    <div id="embed" hidden>
+      <table><tbody><tr><td>
+        <article id="gist" class="markdown-body">
+          <h1>A readable embedded manifesto</h1>
+          <p>The embedded document has more semantic blocks than the cached article.</p>
+          <ol>
+            <li>Readers must be able to understand the original text and its translation.</li>
+            <li>A hidden duplicate must not prevent translation of the visible article.</li>
+            <li>The remote document can arrive after the local fallback has been shown.</li>
+            <li>The embedded article can also load successfully before the timeout.</li>
+            <li>Hidden content must not receive source identifiers or translation notes.</li>
+            <li>Visible offscreen articles must remain eligible for root selection.</li>
+            <li>Repeated translation must not include text from existing translation notes.</li>
+            <li>Both desktop and narrow mobile layouts must remain readable.</li>
+          </ol>
+        </article>
+      </td></tr></tbody></table>
+    </div>
+  </body>
+</html>

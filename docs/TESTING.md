@@ -179,6 +179,26 @@ No API permissions, dependencies, or settings were changed.
 20. Translate a GitHub pull request and confirm conversation content is translated while the Development and Notifications sidebars remain untouched
 21. Confirm there is no per-block display toggle UI and no page-level display mode toolbar
 
+### Hidden article copies
+
+1. Run `node e2e/layout-regression.cjs` to check `test/root-visibility-page.html` at 1440 px and 390 px.
+   - Root selection must exclude hidden ancestors, `display: none`, `visibility: hidden`, and `content-visibility: hidden`.
+   - Visible roots outside the viewport must remain eligible, and scrolling must queue their text.
+   - Both cached and embedded articles must render notes without binding hidden copies, changing source text, adding duplicate notes, or causing horizontal overflow.
+2. Open `https://www.slopmanifesto.com/`, translate, scroll through the article, and translate again.
+   - Check the visible cached article when the Gist loads after the fallback timeout.
+   - Check the embedded article when it is visible instead of the cache.
+
+Local verification on 2026-11-14 passed `npm run check` (657 unit tests), layout regression, and the packaged mock smoke suite.
+With the production bundle and mock API, the live page's naturally visible cache produced 50 ready notes at both widths.
+Manually showing the loaded Gist and hiding the cache produced 71 ready notes at both widths.
+All extractor-approved sources received notes; hidden copies remained unbound, repeat translation succeeded, and no duplicate notes or horizontal overflow appeared.
+Local screenshots are `e2e-artifacts/slopmanifesto-before.png` and `e2e-artifacts/slopmanifesto-{natural,forced-embed}-{1440,390}.png`; these files are not committed.
+CI uploads the reproducible fixture screenshots as `e2e-artifacts/root-visibility-{hidden-ancestor,visible-embed}-{1440,390}.png` in the `pi-translator-chrome` artifact.
+The Gist visibility change was a test setup, not proof of the site's successful initial-load timing.
+The user's installed extension and real translation provider were not tested.
+No permission, dependency, or artifact budget changed.
+
 ### Flex/grid layout regression
 
 1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button. CI runs this regression after installing Chromium.

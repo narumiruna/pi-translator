@@ -665,6 +665,48 @@ test("article content roots outrank surrounding docs layout roots", () => {
 	);
 });
 
+test("hidden article roots are excluded without excluding offscreen roots", () => {
+	for (const visible of [false, true]) {
+		const article = createFakeElement({
+			innerText:
+				"Readable article prose remains eligible outside the viewport. ".repeat(
+					4,
+				),
+			semanticCount: 4,
+			tagName: "ARTICLE",
+		});
+		article.checkVisibility = (options) => {
+			assert.deepEqual(options, { visibilityProperty: true });
+			return visible;
+		};
+		article.getBoundingClientRect = () => ({
+			top: 10000,
+			width: 600,
+			height: 500,
+		});
+
+		const score = scoreTranslationRoot(article);
+		assert.equal(Number.isFinite(score), visible);
+		if (!visible) assert.equal(score, Number.NEGATIVE_INFINITY);
+	}
+});
+
+test("root content hidden by content-visibility is excluded even when its box is visible", () => {
+	const article = createFakeElement({
+		innerText:
+			"This hidden article retains a box but its contents are not rendered. ".repeat(
+				4,
+			),
+		semanticCount: 4,
+		tagName: "ARTICLE",
+	});
+	article.checkVisibility = () => true;
+	article.ownerDocument = {
+		defaultView: { getComputedStyle: () => ({ contentVisibility: "hidden" }) },
+	};
+	assert.equal(scoreTranslationRoot(article), Number.NEGATIVE_INFINITY);
+});
+
 test("heading candidates score above equivalent non-heading link blocks", () => {
 	const heading = createFakeElement({
 		interactiveCount: 1,

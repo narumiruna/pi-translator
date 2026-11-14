@@ -432,6 +432,9 @@ function scoreTranslationRoot(element, options = {}) {
 
 	if (
 		!element?.isConnected ||
+		element.checkVisibility?.({ visibilityProperty: true }) === false ||
+		element.ownerDocument?.defaultView?.getComputedStyle(element)
+			.contentVisibility === "hidden" ||
 		isInsideTranslation(element) ||
 		isTranslatorOwned(element)
 	) {
