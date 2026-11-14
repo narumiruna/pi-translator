@@ -179,6 +179,37 @@ No API permissions, dependencies, or settings were changed.
 20. Translate a GitHub pull request and confirm conversation content is translated while the Development and Notifications sidebars remain untouched
 21. Confirm there is no per-block display toggle UI and no page-level display mode toolbar
 
+### Hidden article copies
+
+1. Run `node e2e/layout-regression.cjs` to check `test/root-visibility-page.html` at 1440 px and 390 px.
+   - Root selection must exclude `display: none` and `content-visibility: hidden` roots, including copies inside ancestors with those styles.
+   - Visible roots outside the viewport must remain eligible, and scrolling must queue their text.
+   - A `display: contents` root must remain eligible when its readable descendants are visible, including offscreen text.
+   - A root with `visibility: hidden` or `visibility: collapse` must remain eligible when readable descendants set `visibility: visible`.
+     - Exclude it when all readable descendants remain hidden.
+   - A competing related article must remain unbound; hidden ancestors or hidden readable descendants must not make boxless copies eligible.
+   - Both cached and embedded articles must render notes without binding hidden copies, changing source text, adding duplicate notes, or causing horizontal overflow.
+2. Open `https://www.slopmanifesto.com/`, translate, scroll through the article, and translate again.
+   - Check the visible cached article when the Gist loads after the fallback timeout.
+   - Check the embedded article when it is visible instead of the cache.
+
+Local verification on 2026-11-14 passed `npm run check` (657 unit tests), layout regression, and the packaged mock smoke suite.
+With the production bundle and mock API, the live page's naturally visible cache produced 50 ready notes at both widths.
+Manually showing the loaded Gist and hiding the cache produced 71 ready notes at both widths.
+All extractor-approved sources received notes; hidden copies remained unbound, repeat translation succeeded, and no duplicate notes or horizontal overflow appeared.
+Local screenshots are `e2e-artifacts/slopmanifesto-before.png` and `e2e-artifacts/slopmanifesto-{natural,forced-embed}-{1440,390}.png`; these files are not committed.
+CI uploads the reproducible fixture screenshots as `e2e-artifacts/root-visibility-{hidden-ancestor,visible-embed,contents-embed,visibility-override}-{1440,390}.png` in the `pi-translator-chrome` artifact.
+The Gist visibility change was a test setup, not proof of the site's successful initial-load timing.
+The user's installed extension and real translation provider were not tested.
+No permission, dependency, or artifact budget changed.
+
+The PR #66 review regression passed `npm run check` (658 unit tests), all fourteen root-visibility states at both widths, and the packaged mock smoke suite.
+A separate production-bundle check rendered ten notes for both visible and initially offscreen `display: contents` articles at each width.
+Hidden copies and the competing related card remained unbound, and repeat translation added no duplicate notes.
+The visibility-override review cases also passed with the production bundle: four visible notes for `visibility: hidden`, initially offscreen text, and `visibility: collapse` at both widths.
+Hidden copies and the related card remained unbound in all six cases, and repeat translation added no duplicate notes.
+The checked production artifact contains 4,007,396 unpacked bytes and remains below the existing budget.
+
 ### Flex/grid layout regression
 
 1. Run `node e2e/layout-regression.cjs` to check flex/grid placement at 1440 px and 390 px, repeated rendering, source-text isolation, dynamic text replacement, and a page button. CI runs this regression after installing Chromium.

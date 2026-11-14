@@ -665,6 +665,88 @@ test("article content roots outrank surrounding docs layout roots", () => {
 	);
 });
 
+test("hidden article roots are excluded without excluding offscreen roots", () => {
+	for (const visible of [false, true]) {
+		const article = createFakeElement({
+			innerText:
+				"Readable article prose remains eligible outside the viewport. ".repeat(
+					4,
+				),
+			semanticCount: 4,
+			tagName: "ARTICLE",
+		});
+		article.checkVisibility = (options) => {
+			assert.deepEqual(options, { visibilityProperty: true });
+			return visible;
+		};
+		article.getBoundingClientRect = () => ({
+			top: 10000,
+			width: 600,
+			height: 500,
+		});
+
+		const score = scoreTranslationRoot(article);
+		assert.equal(Number.isFinite(score), visible);
+		if (!visible) assert.equal(score, Number.NEGATIVE_INFINITY);
+	}
+});
+
+test("roots without visible boxes require a visible readable descendant", () => {
+	for (const rootStyle of [
+		{ display: "contents" },
+		{ display: "block", visibility: "hidden" },
+		{ display: "block", visibility: "collapse" },
+	]) {
+		for (const tagName of ["MAIN", "ARTICLE"]) {
+			for (const [visible, contentVisibility, eligible] of [
+				[true, "visible", true],
+				[false, "visible", false],
+				[true, "hidden", false],
+			]) {
+				const root = createFakeElement({
+					innerText: "A boxless root contains readable article prose. ".repeat(
+						4,
+					),
+					semanticCount: 4,
+					tagName,
+				});
+				const descendant = { checkVisibility: () => visible };
+				const querySelectorAll = root.querySelectorAll.bind(root);
+				root.querySelectorAll = (selector) =>
+					selector === READABLE_BLOCK_SELECTOR
+						? [descendant]
+						: querySelectorAll(selector);
+				root.checkVisibility = () => false;
+				root.ownerDocument = {
+					defaultView: {
+						getComputedStyle: (element) =>
+							element === root
+								? { ...rootStyle, contentVisibility: "visible" }
+								: { display: "block", contentVisibility },
+					},
+				};
+				assert.equal(Number.isFinite(scoreTranslationRoot(root)), eligible);
+			}
+		}
+	}
+});
+
+test("root content hidden by content-visibility is excluded even when its box is visible", () => {
+	const article = createFakeElement({
+		innerText:
+			"This hidden article retains a box but its contents are not rendered. ".repeat(
+				4,
+			),
+		semanticCount: 4,
+		tagName: "ARTICLE",
+	});
+	article.checkVisibility = () => true;
+	article.ownerDocument = {
+		defaultView: { getComputedStyle: () => ({ contentVisibility: "hidden" }) },
+	};
+	assert.equal(scoreTranslationRoot(article), Number.NEGATIVE_INFINITY);
+});
+
 test("heading candidates score above equivalent non-heading link blocks", () => {
 	const heading = createFakeElement({
 		interactiveCount: 1,
