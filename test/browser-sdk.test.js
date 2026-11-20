@@ -222,6 +222,8 @@ for (const vertexai of [false, true]) {
 		const stream = await client.models.generateContentStream({
 			model: "gemini-2.0-flash",
 			contents: "Alpha",
+			// Match the pi-ai adapters, which do not use automatic continuation.
+			config: { automaticContinuation: false },
 		});
 		const chunks = [];
 		for await (const chunk of stream) chunks.push(chunk);
