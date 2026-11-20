@@ -44,14 +44,36 @@ test("catalog encoding preserves all installed model metadata", async () => {
 test("catalog factories keep repeated model metadata independently mutable", () => {
 	const source = JSON.stringify({
 		chat: {
-			first: { id: "first", inputLimits: metadata },
-			second: { id: "second", inputLimits: metadata },
+			first: { id: "first", inputLimits: metadata, maxOutputTokens: 1000 },
+			second: { id: "second", inputLimits: metadata, maxOutputTokens: 1000 },
+			third: { id: "third", inputLimits: metadata, maxOutputTokens: 1000 },
+			fourth: { id: "fourth", inputLimits: metadata, maxOutputTokens: 1000 },
 		},
 	});
 	assert.match(encodeModelCatalog(source), /const value/u);
 	const catalog = decodeCatalog(source);
 	catalog.chat.first.inputLimits.image.resize.maxWidth = 1;
 	assert.equal(catalog.chat.second.inputLimits.image.resize.maxWidth, 2000);
+});
+
+test("catalog encoding stores repeated model field names once", () => {
+	const chat = Object.fromEntries(
+		Array.from({ length: 12 }, (_, index) => [
+			`model-${index}`,
+			{
+				id: `model-${index}`,
+				name: `Example ${index}`,
+				supportsReasoning: false,
+				contextWindow: 100_000,
+				maxOutputTokens: 10_000,
+			},
+		]),
+	);
+	chat.custom = { id: "custom", contextWindow: null };
+	const source = JSON.stringify({ chat });
+	const encoded = encodeModelCatalog(source);
+	assert.equal(encoded.match(/maxOutputTokens/gu)?.length, 1);
+	assert.equal(JSON.stringify(decodeCatalog(source)), source);
 });
 
 test("catalog encoding handles empty groups, arrays, and escaped strings", () => {
