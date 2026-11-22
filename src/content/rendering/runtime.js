@@ -157,6 +157,28 @@ export function createContentRenderer(options = {}) {
 		if (style.display === "inline" || style.writingMode !== "horizontal-tb") {
 			return null;
 		}
+		for (let current = target; current; current = current.parentElement) {
+			const currentStyle =
+				current === target
+					? style
+					: current === parent
+						? parentStyle
+						: window.getComputedStyle(current);
+			// Transforms change client coordinates. Columns change the note's flow origin.
+			if (
+				!isIdentityTransform(currentStyle.transform) ||
+				[
+					currentStyle.rotate,
+					currentStyle.scale,
+					currentStyle.translate,
+					currentStyle.perspective,
+				].some((value) => value && value !== "none") ||
+				(current !== target &&
+					(Number(currentStyle.columnCount) > 1 ||
+						currentStyle.columnWidth !== "auto"))
+			)
+				return null;
+		}
 		const rects = target.getClientRects();
 		if (rects.length !== 1) return null;
 
@@ -181,10 +203,14 @@ export function createContentRenderer(options = {}) {
 				px(style.paddingRight) +
 				px(style.borderRightWidth)) *
 				relativeZoom;
-		const start =
-			parentStyle.direction === "rtl" ? parentWidth - left - width : left;
-		return width > 0 && start >= -1 && start < parentWidth
-			? { start: Math.max(0, start), width }
+		const fromRight = style.direction === "rtl";
+		const offset = fromRight ? parentWidth - left - width : left;
+		return width > 0 && offset >= -1 && offset < parentWidth
+			? {
+					offset: Math.max(0, offset),
+					width,
+					alignEnd: fromRight !== (parentStyle.direction === "rtl"),
+				}
 			: null;
 	}
 
@@ -192,12 +218,15 @@ export function createContentRenderer(options = {}) {
 		const { style } = note;
 		if (!style) return;
 		if (bounds) {
-			style.setProperty("--ot-note-inline-offset", `${bounds.start}px`);
+			style.setProperty("--ot-note-inline-offset", `${bounds.offset}px`);
 			style.setProperty("--ot-note-source-width", `${bounds.width}px`);
 		} else {
 			style.removeProperty("--ot-note-inline-offset");
 			style.removeProperty("--ot-note-source-width");
 		}
+		if (bounds?.alignEnd)
+			style.setProperty("margin-inline", "auto var(--ot-note-inline-offset)");
+		else style.removeProperty("margin-inline");
 		if (bounds && isFlexParent) style.setProperty("align-self", "start");
 		else style.removeProperty("align-self");
 	}

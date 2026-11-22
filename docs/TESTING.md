@@ -181,11 +181,14 @@ No API permissions, dependencies, or settings were changed.
 
 ### Source-column alignment
 
-1. Open `https://www.notion.com/a-new-shape-for-work` and start page translation.
-   - Confirm that the placeholder and completed translation start at the inset article column, not at the page edge.
+1. Build and load `dist/chrome`, and configure a translation provider.
+2. From the repository root, serve the local fixture with `uv run --no-project python -m http.server 8000 --bind 127.0.0.1`.
+3. Open `http://127.0.0.1:8000/test/note-width-page.html` in Chrome and start page translation.
+   - At a desktop width, confirm that the placeholder and completed translation under the first paragraph start at the inset article column, not at the page edge.
    - Narrow the browser window and confirm that existing notes follow the source column without duplicate notes or horizontal overflow.
-2. Run `node e2e/layout-regression.cjs` to check an inset article, a centered paragraph, a flex-column fallback, and right-to-left text.
-   - Notes must align with the start of the source content and respect the saved maximum width at 1440 px and after a resize to 390 px.
+4. Run `node e2e/layout-regression.cjs` for the automated checks.
+   - Notes must align with the source content and respect the saved maximum width at 1440 px and after a resize to 390 px, including when source and parent text directions differ.
+   - Notes must retain the default width rules in CSS columns and under page-level transforms.
 
 ### Hidden article copies
 

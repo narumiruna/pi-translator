@@ -3,27 +3,7 @@ const { mkdir } = require("node:fs/promises");
 
 async function checkNoteWidths(page, origin) {
 	await page.setViewportSize({ width: 1440, height: 1000 });
-	await page.goto(`${origin}/test/fixture-page.html`);
-	await page.setContent(`
-		<!doctype html>
-		<style>
-			body { margin: 20px; }
-			main { border: 2px solid transparent; padding-inline: 24px; }
-			main p { margin-block: 24px 10px; }
-			#offset { max-width: 620px; margin-inline-start: 28%; padding-inline: 16px 8px; }
-			#centered { max-width: 980px; margin-inline: auto; }
-			#column { display: flex; flex-direction: column; align-items: center; }
-			#fixed { width: min(520px, 90%); height: 48px; }
-			#rtl { max-width: 980px; margin-inline-start: 10%; }
-			@media (max-width: 640px) { #offset, #rtl { margin-inline-start: 0; } }
-		</style>
-		<main>
-			<p id="offset">This paragraph is inset from the left edge of a wide article. Its translated note should stay in the same reading column.</p>
-			<p id="centered">This centered paragraph is wider than the configured maximum translation width.</p>
-			<div id="column"><p id="fixed">This paragraph has a fixed height and needs a sibling note even in a flex column.</p></div>
-			<div dir="rtl"><p id="rtl" lang="ar">هذه فقرة عربية طويلة تبدأ من الحافة اليمنى، ويجب أن تبدأ الترجمة من الموضع نفسه.</p></div>
-		</main>
-	`);
+	await page.goto(`${origin}/test/note-width-page.html`);
 	const result = await page.evaluate(async () => {
 		const { createContentRuntime } = await import("/src/content.js");
 		let receive;
@@ -58,25 +38,28 @@ async function checkNoteWidths(page, origin) {
 			targetLanguage: "zh-TW",
 		});
 		window.readNoteWidths = () =>
-			["offset", "centered", "fixed", "rtl"].map((id) => {
-				const source = document.getElementById(id);
-				const note = source.nextElementSibling;
-				const sourceRect = source.getBoundingClientRect();
-				const noteRect = note?.getBoundingClientRect();
-				const style = getComputedStyle(source);
-				const left = sourceRect.left + Number.parseFloat(style.paddingLeft);
-				const right = sourceRect.right - Number.parseFloat(style.paddingRight);
-				return {
-					id,
-					phase: note?.getAttribute("data-phase"),
-					start: style.direction === "rtl" ? right : left,
-					noteStart:
-						style.direction === "rtl" ? noteRect?.right : noteRect?.left,
-					width: right - left,
-					noteWidth: noteRect?.width,
-					below: noteRect?.top >= sourceRect.bottom,
-				};
-			});
+			["offset", "centered", "fixed", "rtl", "mixed", "multicol-source"].map(
+				(id) => {
+					const source = document.getElementById(id);
+					const note = source.nextElementSibling;
+					const sourceRect = source.getBoundingClientRect();
+					const noteRect = note?.getBoundingClientRect();
+					const style = getComputedStyle(source);
+					const left = sourceRect.left + Number.parseFloat(style.paddingLeft);
+					const right =
+						sourceRect.right - Number.parseFloat(style.paddingRight);
+					return {
+						id,
+						phase: note?.getAttribute("data-phase"),
+						start: style.direction === "rtl" ? right : left,
+						noteStart:
+							style.direction === "rtl" ? noteRect?.right : noteRect?.left,
+						width: right - left,
+						noteWidth: noteRect?.width,
+						below: noteRect?.top >= sourceRect.bottom,
+					};
+				},
+			);
 		const placeholders = window.readNoteWidths();
 		const ready = send("render-page-translation-updates", {
 			translations: session.items.map(({ id, text }) => ({
@@ -90,7 +73,8 @@ async function checkNoteWidths(page, origin) {
 		return { pending, placeholders, ready, notes: window.readNoteWidths() };
 	});
 
-	function assertAligned(notes, phase) {
+	function alignmentErrors(notes, phase) {
+		const errors = [];
 		for (const {
 			id,
 			start,
@@ -101,21 +85,21 @@ async function checkNoteWidths(page, origin) {
 			...note
 		} of notes) {
 			assert.equal(note.phase, phase, id);
-			assert.ok(
-				Math.abs(noteStart - start) <= 1,
-				`${id}: ${noteStart} should match ${start}`,
-			);
-			assert.ok(
-				Math.abs(noteWidth - Math.min(width, 720)) <= 1,
-				`${id}: unexpected width ${noteWidth} for source ${width}`,
-			);
-			assert.equal(below, true, id);
+			if (Math.abs(noteStart - start) > 1) {
+				errors.push(`${id}: ${noteStart} should match ${start}`);
+			}
+			if (Math.abs(noteWidth - Math.min(width, 720)) > 1) {
+				errors.push(`${id}: unexpected width ${noteWidth} for source ${width}`);
+			}
+			if (!below) errors.push(`${id}: note should be below the source`);
 		}
+		return errors;
 	}
-	assert.equal(result.pending.rendered, 4);
-	assert.equal(result.ready.rendered, 4);
-	assertAligned(result.placeholders, "pending");
-	assertAligned(result.notes, "ready");
+	assert.equal(result.pending.rendered, 6);
+	assert.equal(result.ready.rendered, 6);
+	assert.ok(
+		result.notes.find(({ id }) => id === "multicol-source").start > 700,
+	);
 	await mkdir("e2e-artifacts", { recursive: true });
 	await page.screenshot({
 		path: "e2e-artifacts/note-width-1440.png",
@@ -123,10 +107,38 @@ async function checkNoteWidths(page, origin) {
 		animations: "disabled",
 	});
 
+	const scaled = await page.evaluate(() => {
+		const source = document.querySelector("#offset");
+		const note = source.nextElementSibling;
+		return [document.body, document.documentElement].map((ancestor) => {
+			ancestor.style.transform = "scale(.8)";
+			window.dispatchEvent(new Event("resize"));
+			const width = note.getBoundingClientRect().width;
+			ancestor.style.removeProperty("transform");
+			return width;
+		});
+	});
+	assert.deepEqual(
+		[
+			...alignmentErrors(result.placeholders, "pending"),
+			...alignmentErrors(result.notes, "ready"),
+			...scaled
+				.filter((width) => Math.abs(width - 576) > 1)
+				.map((width) => `Expected default width under scale, got ${width}`),
+		],
+		[],
+	);
+
 	await page.setViewportSize({ width: 390, height: 1000 });
 	await page.waitForFunction(() => window.readNoteWidths()[0].noteStart < 100);
-	assertAligned(await page.evaluate(() => window.readNoteWidths()), "ready");
-	assert.equal(await page.locator('[data-ot-role="note"]').count(), 4);
+	assert.deepEqual(
+		alignmentErrors(
+			await page.evaluate(() => window.readNoteWidths()),
+			"ready",
+		),
+		[],
+	);
+	assert.equal(await page.locator('[data-ot-role="note"]').count(), 6);
 	assert.equal(
 		await page.evaluate(() => document.documentElement.scrollWidth),
 		390,
