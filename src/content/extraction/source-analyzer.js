@@ -208,9 +208,10 @@ export function createSourceAnalyzer(options = {}) {
 		// Screen-reader-only text can still have a nonempty layout box.
 		return !(
 			(style.position === "absolute" || style.position === "fixed") &&
-			Math.max(width, height) <= (target.currentCSSZoom ?? 1) &&
 			((style.clipPath && style.clipPath !== "none") ||
-				(style.clip && style.clip !== "auto"))
+				(style.clip && style.clip !== "auto")) &&
+			target.offsetWidth <= 1 &&
+			target.offsetHeight <= 1
 		);
 	}
 
