@@ -202,9 +202,17 @@ export function createSourceAnalyzer(options = {}) {
 			return false;
 		}
 
-		const rect = target.getBoundingClientRect();
+		const { width, height } = target.getBoundingClientRect();
+		if (width <= 0 || height <= 0) return false;
 
-		return rect.width > 0 && rect.height > 0;
+		// Screen-reader-only text can still have a nonempty layout box.
+		return !(
+			(style.position === "absolute" || style.position === "fixed") &&
+			((style.clipPath && style.clipPath !== "none") ||
+				(style.clip && style.clip !== "auto")) &&
+			target.offsetWidth <= 1 &&
+			target.offsetHeight <= 1
+		);
 	}
 
 	function getSegmentKind(element) {

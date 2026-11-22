@@ -28,11 +28,13 @@ async function checkNoteWidths(page, origin) {
 			return response;
 		};
 		const appearance = { presetId: "custom", inline: { maxWidthPx: 720 } };
-		const session = send("start-page-translation-session", {
-			sessionId: "note-width",
-			targetLanguage: "zh-TW",
-			translationAppearance: appearance,
-		});
+		const startSession = (sessionId) =>
+			send("start-page-translation-session", {
+				sessionId,
+				targetLanguage: "zh-TW",
+				translationAppearance: appearance,
+			});
+		const session = startSession("note-width");
 		const pending = send("render-page-placeholders", {
 			ids: session.items.map(({ id }) => id),
 			targetLanguage: "zh-TW",
@@ -70,7 +72,25 @@ async function checkNoteWidths(page, origin) {
 			targetLanguage: "zh-TW",
 		});
 		window.cleanupNoteWidths = runtime.cleanup;
-		return { pending, placeholders, ready, notes: window.readNoteWidths() };
+		const boundHidden = () =>
+			["hidden-inset", "hidden-rect"].filter((id) =>
+				document.getElementById(id).hasAttribute("data-ot-source-id"),
+			);
+		const boundHiddenHeadings = boundHidden();
+		document.body.style.transformOrigin = "top left";
+		document.body.style.transform = "scale(2)";
+		startSession("note-width-scaled");
+		const boundScaledHeadings = boundHidden();
+		document.body.style.removeProperty("transform");
+		document.body.style.removeProperty("transform-origin");
+		return {
+			boundHiddenHeadings,
+			boundScaledHeadings,
+			pending,
+			placeholders,
+			ready,
+			notes: window.readNoteWidths(),
+		};
 	});
 
 	function alignmentErrors(notes, phase) {
@@ -95,6 +115,12 @@ async function checkNoteWidths(page, origin) {
 		}
 		return errors;
 	}
+	assert.deepEqual(result.boundHiddenHeadings, []);
+	assert.deepEqual(
+		result.boundScaledHeadings,
+		[],
+		"Clipped headings under a scaled ancestor must stay unbound",
+	);
 	assert.equal(result.pending.rendered, 6);
 	assert.equal(result.ready.rendered, 6);
 	assert.ok(
