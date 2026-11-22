@@ -148,6 +148,86 @@ export function createContentRenderer(options = {}) {
 		return replacement;
 	}
 
+	function getSiblingNoteBounds(target, parentStyle) {
+		const parent = target.parentElement;
+		if (!parent?.clientWidth || parentStyle.writingMode !== "horizontal-tb") {
+			return null;
+		}
+		const style = window.getComputedStyle(target);
+		if (style.display === "inline" || style.writingMode !== "horizontal-tb") {
+			return null;
+		}
+		for (let current = target; current; current = current.parentElement) {
+			const currentStyle =
+				current === target
+					? style
+					: current === parent
+						? parentStyle
+						: window.getComputedStyle(current);
+			// Transforms change client coordinates. Columns change the note's flow origin.
+			if (
+				!isIdentityTransform(currentStyle.transform) ||
+				[
+					currentStyle.rotate,
+					currentStyle.scale,
+					currentStyle.translate,
+					currentStyle.perspective,
+				].some((value) => value && value !== "none") ||
+				(current !== target &&
+					(Number(currentStyle.columnCount) > 1 ||
+						currentStyle.columnWidth !== "auto"))
+			)
+				return null;
+		}
+		const rects = target.getClientRects();
+		if (rects.length !== 1) return null;
+
+		const px = (value) => Number.parseFloat(value) || 0;
+		const parentZoom = parent.currentCSSZoom ?? 1;
+		const relativeZoom = (target.currentCSSZoom ?? 1) / parentZoom;
+		const paddingLeft = px(parentStyle.paddingLeft);
+		const parentWidth =
+			parent.clientWidth - paddingLeft - px(parentStyle.paddingRight);
+		const rect = rects[0];
+		// Convert viewport positions to the parent's content box in CSS pixels.
+		const left =
+			(rect.left - parent.getBoundingClientRect().left) / parentZoom +
+			parent.scrollLeft -
+			parent.clientLeft -
+			paddingLeft +
+			(px(style.borderLeftWidth) + px(style.paddingLeft)) * relativeZoom;
+		const width =
+			rect.width / parentZoom -
+			(px(style.borderLeftWidth) +
+				px(style.paddingLeft) +
+				px(style.paddingRight) +
+				px(style.borderRightWidth)) *
+				relativeZoom;
+		const fromRight = style.direction === "rtl";
+		const offset = fromRight ? parentWidth - left - width : left;
+		return width > 0 && offset >= -1 && offset < parentWidth
+			? { offset: Math.max(0, offset), width, fromRight }
+			: null;
+	}
+
+	function setSiblingNoteAlignment(note, bounds) {
+		const { style } = note;
+		if (!style) return;
+		if (bounds) {
+			style.setProperty("--ot-note-inline-offset", `${bounds.offset}px`);
+			style.setProperty("--ot-note-source-width", `${bounds.width}px`);
+			// Match the measured edge even if page CSS changes the note's direction.
+			const offset = "var(--ot-note-inline-offset)";
+			style.setProperty("margin-left", bounds.fromRight ? "auto" : offset);
+			style.setProperty("margin-right", bounds.fromRight ? offset : "auto");
+		} else {
+			style.removeProperty("--ot-note-inline-offset");
+			style.removeProperty("--ot-note-source-width");
+			style.removeProperty("margin-left");
+			style.removeProperty("margin-right");
+		}
+	}
+
 	function insertNoteForTarget(
 		insertionTarget,
 		note,
@@ -159,9 +239,11 @@ export function createContentRenderer(options = {}) {
 			return note;
 		}
 		note = normalizeNoteElement(sourceElement, insertionTarget, note);
+		const isSubtitle = SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE);
 		if (appendInside) {
 			note.style?.removeProperty("display");
 			note.style?.removeProperty("order");
+			if (!isSubtitle) setSiblingNoteAlignment(note, null);
 			if (
 				note.parentElement !== insertionTarget ||
 				insertionTarget.lastChild !== note
@@ -175,6 +257,12 @@ export function createContentRenderer(options = {}) {
 			insertionTarget.parentElement &&
 			window.getComputedStyle(insertionTarget.parentElement);
 		const isFlexParent = ["flex", "inline-flex"].includes(parentStyle?.display);
+		if (!isSubtitle) {
+			setSiblingNoteAlignment(
+				note,
+				getSiblingNoteBounds(insertionTarget, parentStyle),
+			);
+		}
 		if (isFlexParent) {
 			note.style?.setProperty(
 				"order",

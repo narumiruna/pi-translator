@@ -116,9 +116,9 @@ export function applyContentStyles(options = {}) {
         overflow: visible;
         float: none;
         clear: both;
-        width: min(100%, ${inlineAppearance.maxWidthPx}px);
+        width: min(100% - var(--ot-note-inline-offset, 0px), var(--ot-note-source-width, 100%), ${inlineAppearance.maxWidthPx}px);
         max-width: 100%;
-        margin: ${inlineAppearance.marginTopPx}px 0 ${inlineAppearance.marginBottomPx}px;
+        margin-block: ${inlineAppearance.marginTopPx}px ${inlineAppearance.marginBottomPx}px;
         padding: ${inlineAppearance.paddingVerticalPx}px ${inlineAppearance.paddingHorizontalPx}px;
         border: 0;
         border-left: ${inlineAppearance.accentWidthPx}px solid ${inlineLightAccent};
@@ -735,7 +735,7 @@ export function applyContentStyles(options = {}) {
 
       @media (max-width: 640px) {
         .translation[${ROOT_ATTR}="note"] {
-          margin: min(${inlineAppearance.marginTopPx}px, 14px) 0 min(${inlineAppearance.marginBottomPx}px, 20px);
+          margin-block: min(${inlineAppearance.marginTopPx}px, 14px) min(${inlineAppearance.marginBottomPx}px, 20px);
           padding: min(${inlineAppearance.paddingVerticalPx}px, 12px) min(${inlineAppearance.paddingHorizontalPx}px, 13px);
           border-radius: 0 min(${inlineAppearance.borderRadiusPx}px, 7px) min(${inlineAppearance.borderRadiusPx}px, 7px) 0;
         }

@@ -179,6 +179,17 @@ No API permissions, dependencies, or settings were changed.
 20. Translate a GitHub pull request and confirm conversation content is translated while the Development and Notifications sidebars remain untouched
 21. Confirm there is no per-block display toggle UI and no page-level display mode toolbar
 
+### Source-column alignment
+
+1. Build and load `dist/chrome`, and configure a translation provider.
+2. From the repository root, serve the local fixture with `uv run --no-project python -m http.server 8000 --bind 127.0.0.1`.
+3. Open `http://127.0.0.1:8000/test/note-width-page.html` in Chrome and start page translation.
+   - At a desktop width, confirm that the placeholder and completed translation under the first paragraph start at the inset article column, not at the page edge.
+   - Narrow the browser window and confirm that existing notes follow the source column without duplicate notes or horizontal overflow.
+4. Run `node e2e/layout-regression.cjs` for the automated checks.
+   - Notes must align with the source content and respect the saved maximum width at 1440 px and after a resize to 390 px, including when source and parent text directions differ.
+   - Notes must retain the default width rules in CSS columns and under page-level transforms.
+
 ### Hidden article copies
 
 1. Run `node e2e/layout-regression.cjs` to check `test/root-visibility-page.html` at 1440 px and 390 px.

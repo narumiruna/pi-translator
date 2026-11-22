@@ -69,6 +69,9 @@ The Appearance tab previews changes without saving and warns when translation te
 
 Older underline settings are ignored and safely migrate to the Calm Reading appearance. Arbitrary CSS and font names are not accepted.
 
+Page translations appear below the source and follow its text column where the page layout permits.
+The saved inline maximum width still applies.
+
 ![Compact inline translations shown below their source text](docs/images/compact-inline-translation.png)
 
 YouTube subtitles default to **Translation only**, preserving the behavior of existing saved settings. The selected mode applies when subtitle translation next starts or an active session is restored.
