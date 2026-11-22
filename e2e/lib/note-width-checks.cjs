@@ -70,7 +70,16 @@ async function checkNoteWidths(page, origin) {
 			targetLanguage: "zh-TW",
 		});
 		window.cleanupNoteWidths = runtime.cleanup;
-		return { pending, placeholders, ready, notes: window.readNoteWidths() };
+		const boundHiddenHeadings = ["hidden-inset", "hidden-rect"].filter((id) =>
+			document.getElementById(id).hasAttribute("data-ot-source-id"),
+		);
+		return {
+			boundHiddenHeadings,
+			pending,
+			placeholders,
+			ready,
+			notes: window.readNoteWidths(),
+		};
 	});
 
 	function alignmentErrors(notes, phase) {
@@ -95,6 +104,7 @@ async function checkNoteWidths(page, origin) {
 		}
 		return errors;
 	}
+	assert.deepEqual(result.boundHiddenHeadings, []);
 	assert.equal(result.pending.rendered, 6);
 	assert.equal(result.ready.rendered, 6);
 	assert.ok(

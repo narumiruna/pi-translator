@@ -189,6 +189,8 @@ No API permissions, dependencies, or settings were changed.
 4. Run `node e2e/layout-regression.cjs` for the automated checks.
    - Notes must align with the source content and respect the saved maximum width at 1440 px and after a resize to 390 px, including when source and parent text directions differ.
    - Notes must retain the default width rules in CSS columns and under page-level transforms.
+   - Skip the two 1 px headings clipped with `clip-path` and `clip`; they must not get source IDs or translation notes.
+   - Keep translating visible prose, including the centered paragraph with the same utility class but no active clipping.
 
 ### Hidden article copies
 
