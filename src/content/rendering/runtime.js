@@ -206,29 +206,26 @@ export function createContentRenderer(options = {}) {
 		const fromRight = style.direction === "rtl";
 		const offset = fromRight ? parentWidth - left - width : left;
 		return width > 0 && offset >= -1 && offset < parentWidth
-			? {
-					offset: Math.max(0, offset),
-					width,
-					alignEnd: fromRight !== (parentStyle.direction === "rtl"),
-				}
+			? { offset: Math.max(0, offset), width, fromRight }
 			: null;
 	}
 
-	function setSiblingNoteAlignment(note, bounds, isFlexParent) {
+	function setSiblingNoteAlignment(note, bounds) {
 		const { style } = note;
 		if (!style) return;
 		if (bounds) {
 			style.setProperty("--ot-note-inline-offset", `${bounds.offset}px`);
 			style.setProperty("--ot-note-source-width", `${bounds.width}px`);
+			// Match the measured edge even if page CSS changes the note's direction.
+			const offset = "var(--ot-note-inline-offset)";
+			style.setProperty("margin-left", bounds.fromRight ? "auto" : offset);
+			style.setProperty("margin-right", bounds.fromRight ? offset : "auto");
 		} else {
 			style.removeProperty("--ot-note-inline-offset");
 			style.removeProperty("--ot-note-source-width");
+			style.removeProperty("margin-left");
+			style.removeProperty("margin-right");
 		}
-		if (bounds?.alignEnd)
-			style.setProperty("margin-inline", "auto var(--ot-note-inline-offset)");
-		else style.removeProperty("margin-inline");
-		if (bounds && isFlexParent) style.setProperty("align-self", "start");
-		else style.removeProperty("align-self");
 	}
 
 	function insertNoteForTarget(
@@ -246,7 +243,7 @@ export function createContentRenderer(options = {}) {
 		if (appendInside) {
 			note.style?.removeProperty("display");
 			note.style?.removeProperty("order");
-			if (!isSubtitle) setSiblingNoteAlignment(note, null, false);
+			if (!isSubtitle) setSiblingNoteAlignment(note, null);
 			if (
 				note.parentElement !== insertionTarget ||
 				insertionTarget.lastChild !== note
@@ -264,7 +261,6 @@ export function createContentRenderer(options = {}) {
 			setSiblingNoteAlignment(
 				note,
 				getSiblingNoteBounds(insertionTarget, parentStyle),
-				isFlexParent,
 			);
 		}
 		if (isFlexParent) {

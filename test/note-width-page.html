@@ -12,6 +12,7 @@
   #column { display: flex; flex-direction: column; align-items: center; }
   #fixed { width: min(520px, 90%); height: 48px; }
   #rtl, #mixed { max-width: 980px; margin-inline-start: 10%; }
+  #mixed-case p { direction: rtl; }
   #multicol { columns: 2; column-gap: 20px; column-fill: auto; height: 360px; }
   #multicol-source { break-before: column; }
   @media (max-width: 640px) {
@@ -24,7 +25,7 @@
   <p id="centered">This centered paragraph is wider than the configured maximum translation width.</p>
   <div id="column"><p id="fixed">This paragraph has a fixed height and needs a sibling note even in a flex column.</p></div>
   <div dir="rtl"><p id="rtl" lang="ar">هذه فقرة عربية طويلة تبدأ من الحافة اليمنى، ويجب أن تبدأ الترجمة من الموضع نفسه.</p></div>
-  <p id="mixed" dir="rtl" lang="ar">هذه فقرة من اليمين إلى اليسار داخل صفحة من اليسار إلى اليمين ويجب أن تبدأ الترجمة عند حافتها اليمنى.</p>
+  <div id="mixed-case"><p id="mixed" dir="rtl" lang="ar">هذه فقرة من اليمين إلى اليسار داخل صفحة من اليسار إلى اليمين ويجب أن تبدأ الترجمة عند حافتها اليمنى.</p></div>
   <div id="multicol">
     <div aria-hidden="true" style="height: 1px"></div>
     <p id="multicol-source">This source starts in the second CSS column. The translation should use the column's natural width.</p>

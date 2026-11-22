@@ -119,7 +119,6 @@ export function applyContentStyles(options = {}) {
         width: min(100% - var(--ot-note-inline-offset, 0px), var(--ot-note-source-width, 100%), ${inlineAppearance.maxWidthPx}px);
         max-width: 100%;
         margin-block: ${inlineAppearance.marginTopPx}px ${inlineAppearance.marginBottomPx}px;
-        margin-inline-start: var(--ot-note-inline-offset, 0px);
         padding: ${inlineAppearance.paddingVerticalPx}px ${inlineAppearance.paddingHorizontalPx}px;
         border: 0;
         border-left: ${inlineAppearance.accentWidthPx}px solid ${inlineLightAccent};
