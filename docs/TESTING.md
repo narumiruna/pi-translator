@@ -179,6 +179,14 @@ No API permissions, dependencies, or settings were changed.
 20. Translate a GitHub pull request and confirm conversation content is translated while the Development and Notifications sidebars remain untouched
 21. Confirm there is no per-block display toggle UI and no page-level display mode toolbar
 
+### Source-column alignment
+
+1. Open `https://www.notion.com/a-new-shape-for-work` and start page translation.
+   - Confirm that the placeholder and completed translation start at the inset article column, not at the page edge.
+   - Narrow the browser window and confirm that existing notes follow the source column without duplicate notes or horizontal overflow.
+2. Run `node e2e/layout-regression.cjs` to check an inset article, a centered paragraph, a flex-column fallback, and right-to-left text.
+   - Notes must align with the start of the source content and respect the saved maximum width at 1440 px and after a resize to 390 px.
+
 ### Hidden article copies
 
 1. Run `node e2e/layout-regression.cjs` to check `test/root-visibility-page.html` at 1440 px and 390 px.

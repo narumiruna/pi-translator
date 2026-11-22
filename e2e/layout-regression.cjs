@@ -3,6 +3,7 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 const { createStaticServer } = require("./lib/extension-test-helpers.cjs");
 const { checkFixedHeights } = require("./lib/fixed-height-checks.cjs");
+const { checkNoteWidths } = require("./lib/note-width-checks.cjs");
 const { checkPlacementSafety } = require("./lib/placement-safety-checks.cjs");
 const { checkRootVisibility } = require("./lib/root-visibility-checks.cjs");
 
@@ -222,6 +223,7 @@ async function main() {
 		await checkRootVisibility(page, server.origin);
 		await checkPlacementSafety(page, server.origin);
 		await checkFixedHeights(page, server.origin);
+		await checkNoteWidths(page, server.origin);
 	} finally {
 		try {
 			await browser?.close();

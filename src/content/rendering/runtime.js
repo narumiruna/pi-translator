@@ -148,6 +148,60 @@ export function createContentRenderer(options = {}) {
 		return replacement;
 	}
 
+	function getSiblingNoteBounds(target, parentStyle) {
+		const parent = target.parentElement;
+		if (!parent?.clientWidth || parentStyle.writingMode !== "horizontal-tb") {
+			return null;
+		}
+		const style = window.getComputedStyle(target);
+		if (style.display === "inline" || style.writingMode !== "horizontal-tb") {
+			return null;
+		}
+		const rects = target.getClientRects();
+		if (rects.length !== 1) return null;
+
+		const px = (value) => Number.parseFloat(value) || 0;
+		const parentZoom = parent.currentCSSZoom ?? 1;
+		const relativeZoom = (target.currentCSSZoom ?? 1) / parentZoom;
+		const paddingLeft = px(parentStyle.paddingLeft);
+		const parentWidth =
+			parent.clientWidth - paddingLeft - px(parentStyle.paddingRight);
+		const rect = rects[0];
+		// Convert viewport positions to the parent's content box in CSS pixels.
+		const left =
+			(rect.left - parent.getBoundingClientRect().left) / parentZoom +
+			parent.scrollLeft -
+			parent.clientLeft -
+			paddingLeft +
+			(px(style.borderLeftWidth) + px(style.paddingLeft)) * relativeZoom;
+		const width =
+			rect.width / parentZoom -
+			(px(style.borderLeftWidth) +
+				px(style.paddingLeft) +
+				px(style.paddingRight) +
+				px(style.borderRightWidth)) *
+				relativeZoom;
+		const start =
+			parentStyle.direction === "rtl" ? parentWidth - left - width : left;
+		return width > 0 && start >= -1 && start < parentWidth
+			? { start: Math.max(0, start), width }
+			: null;
+	}
+
+	function setSiblingNoteAlignment(note, bounds, isFlexParent) {
+		const { style } = note;
+		if (!style) return;
+		if (bounds) {
+			style.setProperty("--ot-note-inline-offset", `${bounds.start}px`);
+			style.setProperty("--ot-note-source-width", `${bounds.width}px`);
+		} else {
+			style.removeProperty("--ot-note-inline-offset");
+			style.removeProperty("--ot-note-source-width");
+		}
+		if (bounds && isFlexParent) style.setProperty("align-self", "start");
+		else style.removeProperty("align-self");
+	}
+
 	function insertNoteForTarget(
 		insertionTarget,
 		note,
@@ -159,9 +213,11 @@ export function createContentRenderer(options = {}) {
 			return note;
 		}
 		note = normalizeNoteElement(sourceElement, insertionTarget, note);
+		const isSubtitle = SubtitleApi.isSubtitleProfile(ACTIVE_SITE_PROFILE);
 		if (appendInside) {
 			note.style?.removeProperty("display");
 			note.style?.removeProperty("order");
+			if (!isSubtitle) setSiblingNoteAlignment(note, null, false);
 			if (
 				note.parentElement !== insertionTarget ||
 				insertionTarget.lastChild !== note
@@ -175,6 +231,13 @@ export function createContentRenderer(options = {}) {
 			insertionTarget.parentElement &&
 			window.getComputedStyle(insertionTarget.parentElement);
 		const isFlexParent = ["flex", "inline-flex"].includes(parentStyle?.display);
+		if (!isSubtitle) {
+			setSiblingNoteAlignment(
+				note,
+				getSiblingNoteBounds(insertionTarget, parentStyle),
+				isFlexParent,
+			);
+		}
 		if (isFlexParent) {
 			note.style?.setProperty(
 				"order",
