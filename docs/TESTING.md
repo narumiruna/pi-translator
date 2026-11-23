@@ -90,6 +90,16 @@ Headless runs and headed runs outside WSLg keep their original launch options.
 3. Confirm that inline code stays unchanged and that share controls do not receive translations.
 4. After a production build, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:github`. This uses a local fixture and mock provider to check comment coverage, scrolling, dynamic comments, and duplicate notes. It does not verify live-provider output.
 
+## NVIDIA Newsroom articles
+
+1. Build and load `dist/chrome`, configure a translation provider, and open the [NVIDIA Newsroom article](https://nvidianews.nvidia.com/news/nvidia-board-reinstates-jensen-huang-as-president-ceo-and-board-director).
+2. Start page translation and scroll through the article at desktop and narrow widths.
+   - Confirm that the headline and all five paragraphs each have one visible translation below the original text.
+   - Confirm that the More News sidebar has no translations and that the page does not scroll horizontally.
+3. After a production build, run `PLAYWRIGHT_ENV_FILE=/dev/null PLAYWRIGHT_HEADLESS=1 npm run e2e:mock`.
+   - The suite uses a local article fixture and mock provider to check the same behavior at 1440 px and 390 px without contacting NVIDIA or a live translation provider.
+   - Screenshots are saved to `e2e-artifacts/nvidia-newsroom-{1440,390}.png` and are not committed.
+
 ## X post translation
 
 1. Open `https://x.com/1Password/status/2113276767582498943` and start page translation.

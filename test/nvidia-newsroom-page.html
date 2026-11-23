@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>NVIDIA Newsroom article fixture</title>
+  <style>
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+    #page-content { max-width: 1100px; margin: auto; padding: 24px; }
+    @media (min-width: 900px) {
+      .main { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="page-content">
+    <div class="main row">
+      <div class="main-content col-lg-8">
+        <div class="article">
+          <h1 class="article-title">NVIDIA Newsroom publishes a research update</h1>
+          <div class="article-date">November 23, 2026</div>
+          <div class="article-body">
+            <p>The research team published an update on its most recent experiments. The report explains how the team chose the measurements, how it set up the test environment, and which results it could reproduce across different machines and software versions.</p>
+            <p>The team first tested a small dataset to check that each part of the process behaved as expected. It repeated each run several times, tracked the differences in results, and made notes about changes in the environment that might explain those differences.</p>
+            <p>The larger experiment took place after these initial checks. Engineers compared the new results with the original measurements and recorded missing data separately so readers could distinguish an incomplete run from a valid result.</p>
+            <p>The public report also lists the cases that the experiment does not cover. These include machines with different memory limits, workloads that run for longer periods, and applications that share a machine with unrelated background work.</p>
+            <p>The research team will publish a follow-up after it finishes the next series of experiments. Readers can use the methods described in the report to repeat the current tests and compare their results with the published measurements.</p>
+          </div>
+        </div>
+      </div>
+      <aside class="main-aside article-news">
+        <h2>More News</h2>
+        <article class="index-item">
+          <h3><a href="/news/another-story">NVIDIA announces another public event for researchers and the financial community</a></h3>
+          <div>November 19, 2026</div>
+        </article>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>
