@@ -1,5 +1,11 @@
 # pi-translator
 
+## 0.1.7
+
+### Patch Changes
+
+- 9daf164: Translate the headline and body of NVIDIA Newsroom articles instead of selecting a More News sidebar card.
+
 ## 0.1.6
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Pi Translator",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Translate web pages with pi-ai providers while keeping the original text visible.",
 	"permissions": ["activeTab", "contextMenus", "scripting", "storage"],
 	"host_permissions": [
