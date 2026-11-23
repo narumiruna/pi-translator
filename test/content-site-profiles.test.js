@@ -55,6 +55,8 @@ test("resolveSiteProfile matches exact built-in hosts", () => {
 		["www.findy.co.jp", "findy-article"],
 		["github.com", "github"],
 		["www.github.com", "github"],
+		["nvidianews.nvidia.com", "nvidia-newsroom"],
+		["www.nvidia.com", "default"],
 		["reddit.com", "reddit"],
 		["www.reddit.com", "reddit"],
 		["schiit.com", "schiit-article"],
@@ -142,6 +144,10 @@ test("site profiles compile into generic content capabilities", () => {
 			host: "github.com",
 			root: GITHUB_MAIN_CONTENT_SELECTOR,
 			text: GITHUB_MARKDOWN_TEXT_SELECTOR,
+		},
+		{
+			host: "nvidianews.nvidia.com",
+			root: "#page-content .main-content > .article",
 		},
 		{
 			host: "reddit.com",

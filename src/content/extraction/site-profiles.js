@@ -70,6 +70,11 @@ const SITE_PROFILES = Object.freeze([
 		rootSelectors: Object.freeze([GITHUB_MAIN_CONTENT_SELECTOR]),
 	}),
 	Object.freeze({
+		id: "nvidia-newsroom",
+		hosts: Object.freeze(["nvidianews.nvidia.com"]),
+		rootSelectors: Object.freeze(["#page-content .main-content > .article"]),
+	}),
+	Object.freeze({
 		id: "reddit",
 		hosts: Object.freeze(["reddit.com", "www.reddit.com"]),
 		rootSelectors: Object.freeze([REDDIT_ROOT_SELECTOR]),

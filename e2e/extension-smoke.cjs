@@ -16,6 +16,10 @@ const {
 	takeScreenshot,
 	waitFor,
 } = require("./lib/extension-test-helpers.cjs");
+const {
+	checkNvidiaNewsroomTranslation,
+	NVIDIA_NEWSROOM_ORIGIN,
+} = require("./lib/nvidia-newsroom-checks.cjs");
 
 const FIXTURE_PATH = "/test/fixture-page.html";
 const REINJECTION_FIXTURE_PATH = "/test/reinjection-page.html";
@@ -1319,15 +1323,16 @@ async function main() {
 	const config = getConfig();
 	const server = await createStaticServer(ROOT_DIR);
 	const mockApiServer = config.useMockApi ? await createMockApiServer() : null;
-	const fixtureOriginPattern = `${server.origin}/*`;
+	const fixtureOriginPatterns = [`${server.origin}/*`];
 	let runState;
 
 	if (mockApiServer) {
 		config.baseUrl = mockApiServer.baseUrl;
+		fixtureOriginPatterns.push(`${NVIDIA_NEWSROOM_ORIGIN}/*`);
 	}
 
 	try {
-		runState = await launchExtensionContext(config, [fixtureOriginPattern]);
+		runState = await launchExtensionContext(config, fixtureOriginPatterns);
 		console.log(`Using fixture server: ${server.origin}`);
 		if (mockApiServer) {
 			console.log(`Using mock API server: ${mockApiServer.baseUrl}`);
@@ -1391,6 +1396,10 @@ async function main() {
 		console.log("Iframe selection translation smoke passed.");
 
 		if (mockApiServer) {
+			await checkNvidiaNewsroomTranslation(
+				runState.context,
+				config.artifactsDir,
+			);
 			await runPagePartialFailureSmoke(
 				runState.context,
 				server.origin,
